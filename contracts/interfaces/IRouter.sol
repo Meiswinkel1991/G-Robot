@@ -11,4 +11,6 @@ interface IRouter {
         bool _isLong,
         uint256 _price
     ) external;
+
+    function approvePlugin(address _plugin) external;
 }

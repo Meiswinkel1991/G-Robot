@@ -4,35 +4,39 @@ pragma solidity ^0.8.9;
 // Uncomment this line to use console.log
 import "hardhat/console.sol";
 
-import "./interfaces/IRouter.sol";
+import "./interfaces/IPositionRouter.sol";
 import "./interfaces/IERC20.sol";
 import "./interfaces/IVault.sol";
+import "./interfaces/IRouter.sol";
 
 contract GridBot {
-    struct LimitOrder {
-        address underlyingToken;
-        bool isLong;
-        uint256 assetPrice;
-        uint8 leverage;
-    }
+    uint256 constant EXECUTION_FEE = 100000000000000;
 
     /* ====== State Variables ====== */
 
     address private tokenAddressUSDC;
+    address private tokenAddressWETH;
 
-    address private routerGMX;
     address private vaultGMX;
+    address private positionRouterGMX;
+    address private routerGMX;
 
-    LimitOrder[] public orders;
+    bytes32 private trxKey;
+
+    bool private pluginApproved;
 
     constructor(
-        address _routerGMX,
+        address _positionRouterGMX,
         address _vaultGMX,
-        address _tokenAddressUSDC
+        address _routerGMX,
+        address _tokenAddressUSDC,
+        address _tokenAddressWETH
     ) {
-        routerGMX = _routerGMX;
+        positionRouterGMX = _positionRouterGMX;
         vaultGMX = _vaultGMX;
+        routerGMX = _routerGMX;
         tokenAddressUSDC = _tokenAddressUSDC;
+        tokenAddressWETH = _tokenAddressWETH;
     }
 
     receive() external payable {}
@@ -40,42 +44,62 @@ contract GridBot {
     /* ====== Main Functions ====== */
     function executeLimitOrder() external {}
 
-    function openPosition(LimitOrder memory _order) public {
+    function openPosition() public {
+        // 1. approvePlugin router
+
+        _approveRouterPlugin();
+
+        // 2. approve router contract with the colletarel token
+
         uint256 _balance = IERC20(tokenAddressUSDC).balanceOf(address(this));
+
+        _approveRouterForTokenTransfer(_balance);
+
+        // 3. createIncreasePosition with positionRouter
 
         uint256 _positionSize = _balance / 20;
 
-        uint256 _price = IVault(vaultGMX).getMaxPrice(_order.underlyingToken);
+        uint256 _price = IVault(vaultGMX).getMaxPrice(tokenAddressWETH);
+
+        address[] memory path = new address[](1);
+
+        bytes32 reveralCode;
+
+        path[0] = tokenAddressUSDC;
 
         console.log(_price);
 
-        address[] memory _path = new address[](1);
+        uint sizeDelta = _balance * 5;
 
-        _path[0] = tokenAddressUSDC;
-
-        IRouter(routerGMX).increasePosition(
-            _path,
-            _order.underlyingToken,
-            _positionSize,
+        trxKey = IPositionRouter(positionRouterGMX).createIncreasePosition{
+            value: 100000000000000
+        }(
+            path,
+            tokenAddressWETH,
+            _balance,
             0,
-            _positionSize * _order.leverage * 10 ** 30,
-            _order.isLong,
-            _price * 10 ** 30
-        );
-    }
-
-    function addLimitOrder(
-        address _underlyingToken,
-        bool _isLong,
-        uint256 _assetPrice,
-        uint8 _leverage
-    ) external {
-        orders.push(
-            LimitOrder(_underlyingToken, _isLong, _assetPrice, _leverage)
+            sizeDelta,
+            true,
+            _price,
+            100000000000000,
+            reveralCode,
+            address(0)
         );
     }
 
     /* ====== Internal Functions ====== */
+
+    function _approveRouterPlugin() internal {
+        if (!pluginApproved) {
+            IRouter(routerGMX).approvePlugin(positionRouterGMX);
+        }
+
+        pluginApproved = true;
+    }
+
+    function _approveRouterForTokenTransfer(uint _balance) internal {
+        require(IERC20(tokenAddressUSDC).approve(positionRouterGMX, _balance));
+    }
 
     /* ====== Pure / View Functions ====== */
 
@@ -83,9 +107,7 @@ contract GridBot {
         return address(this).balance;
     }
 
-    function getLimitOrder(
-        uint8 orderId
-    ) public view returns (LimitOrder memory) {
-        return orders[orderId];
+    function getTrxKey() public view returns (bytes32) {
+        return trxKey;
     }
 }

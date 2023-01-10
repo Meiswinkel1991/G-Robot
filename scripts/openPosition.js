@@ -1,33 +1,70 @@
-const { ethers } = require("hardhat");
+const { ethers, network } = require("hardhat");
+const { networkConfig } = require("../helper-hardhat-config");
+const helpers = require("@nomicfoundation/hardhat-network-helpers");
 
 async function main() {
-  const gridBot = await ethers.getContractAt(
-    "GridBot",
-    "0x95401dc811bb5740090279Ba06cfA8fcF6113778"
+  const routerAddress = networkConfig[network.config.chainId]["positionRouter"];
+
+  const positionRouter = await ethers.getContractAt(
+    "IPositionRouter",
+    routerAddress
   );
 
-  await gridBot.addLimitOrder(
-    "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
-    true,
-    ethers.utils.parseEther("1"),
-    5
-  );
+  const chainId = network.config.chainId;
 
-  const _order = await gridBot.getLimitOrder(0);
+  const USDCAddress = networkConfig[chainId]["USDC"];
+  const wETHAddress = networkConfig[chainId]["wETH"];
 
-  console.log(_order);
+  const sizeDelta = ethers.utils.parseEther("5000");
 
-  const vault = await ethers.getContractAt(
-    "IVault",
-    "0x489ee077994B6658eAfA855C308275EAd8097C4A"
-  );
+  const vaultAddress = networkConfig[chainId]["vault"];
+  const vaultContract = await ethers.getContractAt("IVault", vaultAddress);
 
-  const price = await vault.getMaxPrice(
-    "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1"
-  );
-  console.log(price);
+  const maxPrice = await vaultContract.getMaxPrice(wETHAddress);
 
-  await gridBot.openPosition(_order);
+  const executionFee = 100000000000000;
+
+  console.log(maxPrice);
+
+  // await USDC.connect(signer).approve(routerAddress, amountIn);
+
+  // await positionRouter.createIncreasePosition(
+  //   [USDCAddress],
+  //   wETHAddress,
+  //   amountIn,
+  //   0,
+  //   sizeDelta,
+  //   true,
+  //   maxPrice,
+  //   executionFee,
+  //   ethers.utils.formatBytes32String(""),
+  //   ethers.constants.AddressZero,
+  //   { value: executionFee }
+  // );
+
+  const botAddress = "0x84eA74d481Ee0A5332c457a4d796187F6Ba67fEB";
+
+  const bot = await ethers.getContractAt("GridBot", botAddress);
+
+  await USDC.connect(signer).transfer(bot.address, amountIn);
+
+  const botBalance = await USDC.balanceOf(bot.address);
+
+  let tx = {
+    to: bot.address,
+    // Convert currency unit from ether to wei
+    value: 200000000000000,
+  };
+  await signer.sendTransaction(tx);
+
+  console.log(botBalance);
+
+  console.log("start position");
+  await bot.openPosition();
+
+  const key = await bot.getTrxKey();
+
+  console.log(key);
 }
 
 main().catch((error) => {

@@ -15,4 +15,6 @@ const networkConfig = {
   },
 };
 
-module.exports = { networkConfig };
+const deployedContractsPath = "./deployments/deployedContracts.json";
+
+module.exports = { networkConfig, deployedContractsPath };
