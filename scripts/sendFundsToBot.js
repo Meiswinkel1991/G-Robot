@@ -1,6 +1,7 @@
 const { ethers, network } = require("hardhat");
 const { networkConfig } = require("../helper-hardhat-config");
 const helpers = require("@nomicfoundation/hardhat-network-helpers");
+const { getDeployments } = require("../helper-functions");
 
 async function main() {
   const chainId = network.config.chainId;
@@ -16,16 +17,13 @@ async function main() {
 
   const balance = await USDC.balanceOf(impersonatedSigner.address);
 
-  console.log(`Balance of whale: ${ethers.utils.formatUnits(balance, 8)}`);
+  console.log(`Balance of whale: ${ethers.utils.formatUnits(balance, 6)}`);
 
-  const botAddress = await USDC.connect(impersonatedSigner).transfer(
-    signer.address,
-    balance
-  );
+  const botAddress = getDeployments(chainId)["GridBot"].address;
 
-  const botBalance = await USDC.balanceOf(
-    "0x84eA74d481Ee0A5332c457a4d796187F6Ba67fEB"
-  );
+  await USDC.connect(impersonatedSigner).transfer(botAddress, balance);
+
+  const botBalance = await USDC.balanceOf(botAddress);
 
   console.log(botBalance);
 }

@@ -1,30 +1,10 @@
 const { ethers, network } = require("hardhat");
 const { networkConfig } = require("../helper-hardhat-config");
 const helpers = require("@nomicfoundation/hardhat-network-helpers");
+const { getDeployments } = require("../helper-functions");
 
 async function main() {
-  const routerAddress = networkConfig[network.config.chainId]["positionRouter"];
-
-  const positionRouter = await ethers.getContractAt(
-    "IPositionRouter",
-    routerAddress
-  );
-
   const chainId = network.config.chainId;
-
-  const USDCAddress = networkConfig[chainId]["USDC"];
-  const wETHAddress = networkConfig[chainId]["wETH"];
-
-  const sizeDelta = ethers.utils.parseEther("5000");
-
-  const vaultAddress = networkConfig[chainId]["vault"];
-  const vaultContract = await ethers.getContractAt("IVault", vaultAddress);
-
-  const maxPrice = await vaultContract.getMaxPrice(wETHAddress);
-
-  const executionFee = 100000000000000;
-
-  console.log(maxPrice);
 
   // await USDC.connect(signer).approve(routerAddress, amountIn);
 
@@ -42,29 +22,47 @@ async function main() {
   //   { value: executionFee }
   // );
 
-  const botAddress = "0x84eA74d481Ee0A5332c457a4d796187F6Ba67fEB";
+  const botAddress = getDeployments(chainId)["GridBot"].address;
+
+  console.log(botAddress);
 
   const bot = await ethers.getContractAt("GridBot", botAddress);
 
-  await USDC.connect(signer).transfer(bot.address, amountIn);
+  const signer = await ethers.getSigner();
 
-  const botBalance = await USDC.balanceOf(bot.address);
-
-  let tx = {
+  const tx = {
     to: bot.address,
-    // Convert currency unit from ether to wei
-    value: 200000000000000,
+    value: ethers.utils.parseEther("2"),
   };
   await signer.sendTransaction(tx);
 
-  console.log(botBalance);
+  const _balance = await ethers.provider.getBalance(bot.address);
 
-  console.log("start position");
-  await bot.openPosition();
+  console.log(_balance);
+
+  const USDCAddress = networkConfig[chainId]["USDC"];
+  const USDC = await ethers.getContractAt("IERC20Metadata", USDCAddress);
+
+  const botBalanceUSDC = await USDC.balanceOf(bot.address);
+
+  const _amountIn = botBalanceUSDC.div(ethers.BigNumber.from("100"));
+  console.log(_amountIn);
+
+  const _leverage = 1;
+
+  console.log(`Add following USDC Amount ${_amountIn}`);
+
+  await bot.openPosition(_amountIn, _leverage);
 
   const key = await bot.getTrxKey();
 
-  console.log(key);
+  await helpers.time.increase(181);
+
+  await bot.executePosition(key);
+
+  const position = await bot.getPositionInfo(0);
+
+  console.log(position);
 }
 
 main().catch((error) => {

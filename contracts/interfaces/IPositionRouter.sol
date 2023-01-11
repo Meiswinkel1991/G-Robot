@@ -17,6 +17,11 @@ interface IPositionRouter {
         address payable _executionFeeReceiver
     ) external;
 
+    function executeIncreasePosition(
+        bytes32 _key,
+        address payable _executionFeeReceiver
+    ) external returns (bool);
+
     function createIncreasePosition(
         address[] memory _path,
         address _indexToken,
