@@ -12,9 +12,11 @@ import "./interfaces/IRouter.sol";
 
 contract GridBot {
     struct Position {
-        address colletarelToken;
+        address collateralToken;
         address indexToken;
         bool isLong;
+        uint256 lastChange;
+        bytes32 key;
     }
 
     uint256 constant EXECUTION_FEE = 100000000000000;
@@ -23,6 +25,9 @@ contract GridBot {
     uint8 constant MIN_TIME_DELAY = 180;
 
     /* ====== State Variables ====== */
+    bool private pluginApproved;
+
+    Position[] private positions;
 
     address private tokenAddressUSDC; //USDC Token only have 6 Decimals!!!
     address private tokenAddressWETH;
@@ -30,12 +35,6 @@ contract GridBot {
     address private vaultGMX;
     address private positionRouterGMX;
     address private routerGMX;
-
-    bytes32 private trxKey;
-
-    bool private pluginApproved;
-
-    Position[] private positions;
 
     constructor(
         address _positionRouterGMX,
@@ -54,9 +53,11 @@ contract GridBot {
     receive() external payable {}
 
     /* ====== Main Functions ====== */
-    function executeLimitOrder() external {}
 
-    function openPosition(uint256 _amoutIn, uint256 _sizeDelta) public {
+    function openPosition(
+        uint256 _amoutIn,
+        uint256 _sizeDelta
+    ) public returns (bytes32) {
         // 1. approvePlugin router
 
         _approveRouterPlugin();
@@ -78,9 +79,8 @@ contract GridBot {
 
         console.log(_price);
 
-        trxKey = IPositionRouter(positionRouterGMX).createIncreasePosition{
-            value: EXECUTION_FEE
-        }(
+        bytes32 trxKey = IPositionRouter(positionRouterGMX)
+            .createIncreasePosition{value: EXECUTION_FEE}(
             path,
             tokenAddressWETH,
             _amoutIn,
@@ -92,15 +92,34 @@ contract GridBot {
             reveralCode,
             address(0)
         );
+        if (!_isExistingPosition(trxKey)) {
+            positions.push(
+                Position(
+                    tokenAddressWETH,
+                    tokenAddressWETH,
+                    true,
+                    block.timestamp,
+                    trxKey
+                )
+            );
+        } else {
+            uint16 _id = getPositionIndex(trxKey);
+            positions[_id].lastChange = block.timestamp;
+        }
 
-        positions.push(Position(tokenAddressWETH, tokenAddressWETH, true));
+        return trxKey;
     }
 
     function executePosition(bytes32 key) public {
-        IPositionRouter(positionRouterGMX).executeIncreasePosition(
-            key,
-            payable(address(this))
-        );
+        uint16 _id = getPositionIndex(key);
+
+        require(!_isExecuted(_id), "Already exicuted");
+
+        bool success = IPositionRouter(positionRouterGMX)
+            .executeIncreasePosition(key, payable(address(this)));
+        require(success, "Executuion failed");
+
+        positions[_id].lastChange = block.timestamp;
     }
 
     /* ====== Internal Functions ====== */
@@ -117,18 +136,51 @@ contract GridBot {
         require(IERC20(tokenAddressUSDC).approve(routerGMX, MAX));
     }
 
+    function _isExistingPosition(bytes32 _key) internal view returns (bool) {
+        for (uint8 i = 0; i < positions.length; i++) {
+            Position memory pos = positions[i];
+            if (_key == pos.key) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function _isExecuted(uint16 _id) internal view returns (bool) {
+        (, , , , , , , uint256 lastIncreaseTime) = getPositionInfo(_id);
+        if (positions[_id].lastChange <= lastIncreaseTime) {
+            console.log(lastIncreaseTime);
+            return true;
+        }
+        return false;
+    }
+
     /* ====== Pure / View Functions ====== */
 
     function getBalance() public view returns (uint256) {
         return address(this).balance;
     }
 
-    function getTrxKey() public view returns (bytes32) {
-        return trxKey;
+    function getTrxKey(uint256 _positionIndex) public view returns (bytes32) {
+        return positions[_positionIndex].key;
     }
 
     function getTokenDecimals(address _token) public view returns (uint256) {
         return IERC20Metadata(_token).decimals();
+    }
+
+    function getPositions() external view returns (Position[] memory) {
+        return positions;
+    }
+
+    function getPositionIndex(bytes32 _key) public view returns (uint16) {
+        for (uint16 i = 0; i < positions.length; i++) {
+            Position memory pos = positions[i];
+            if (_key == pos.key) {
+                return i;
+            }
+        }
+        return uint16(positions.length);
     }
 
     function getPositionInfo(
@@ -150,9 +202,46 @@ contract GridBot {
         return
             IVault(vaultGMX).getPosition(
                 address(this),
-                positions[_id].colletarelToken,
+                positions[_id].collateralToken,
                 positions[_id].indexToken,
                 positions[_id].isLong
             );
+    }
+
+    function getTradeInfo(
+        uint256 _id
+    ) external view returns (uint256, uint256, bool) {
+        uint256 _leverage = IVault(vaultGMX).getPositionLeverage(
+            address(this),
+            positions[_id].collateralToken,
+            positions[_id].indexToken,
+            positions[_id].isLong
+        );
+
+        (
+            uint256 _size,
+            ,
+            uint256 _avgPrice,
+            ,
+            ,
+            ,
+            ,
+            uint256 _lastIncreasedTimestamp
+        ) = IVault(vaultGMX).getPosition(
+                address(this),
+                positions[_id].collateralToken,
+                positions[_id].indexToken,
+                positions[_id].isLong
+            );
+
+        (bool _hasProfit, uint256 _delta) = IVault(vaultGMX).getDelta(
+            positions[_id].indexToken,
+            _size,
+            _avgPrice,
+            positions[_id].isLong,
+            _lastIncreasedTimestamp
+        );
+
+        return (_leverage, _delta, _hasProfit);
     }
 }

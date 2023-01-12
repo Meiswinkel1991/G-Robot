@@ -2,6 +2,8 @@ task("position", "Prints an account's position on GMX").setAction(
   async (taskArgs, hre) => {
     const { getDeployments } = require("../helper-functions");
 
+    //TODO: Write Task to control the positions
+
     const account = hre.ethers.utils.getAddress(taskArgs.account);
 
     const chainId = hre.network.config.chainId;

@@ -234,4 +234,11 @@ interface IVault {
             bool,
             uint256
         );
+
+    function getPositionLeverage(
+        address _account,
+        address _collateralToken,
+        address _indexToken,
+        bool _isLong
+    ) external view returns (uint256);
 }
