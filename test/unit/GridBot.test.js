@@ -67,7 +67,7 @@ describe("GridBot Unit test", () => {
     return { gridBot, owner, user, balanceBot };
   }
 
-  describe("#openPosition", () => {
+  describe("#addToPosition", () => {
     it("should open and execute a new position on gmx protocol", async () => {
       const { gridBot, balanceBot } = await loadFixture(deployGridBotFixture);
 
@@ -79,7 +79,7 @@ describe("GridBot Unit test", () => {
 
       console.log(`Position Leverage: 2 ; Position Size:${positionSize}`);
 
-      await gridBot.openPosition(_amountIn, positionSize);
+      await gridBot.addToPosition(_amountIn, positionSize);
 
       const positions = await gridBot.getPositions();
 
@@ -112,7 +112,7 @@ describe("GridBot Unit test", () => {
 
       console.log(`Position Leverage: 2 ; Position Size:${positionSize}`);
 
-      await gridBot.openPosition(_amountIn, positionSize);
+      await gridBot.addToPosition(_amountIn, positionSize);
 
       const position = await gridBot.getPositionInfo(0);
 

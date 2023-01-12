@@ -54,7 +54,7 @@ contract GridBot {
 
     /* ====== Main Functions ====== */
 
-    function openPosition(
+    function addToPosition(
         uint256 _amoutIn,
         uint256 _sizeDelta
     ) public returns (bytes32) {
@@ -62,7 +62,7 @@ contract GridBot {
 
         _approveRouterPlugin();
 
-        // 2. approve router contract with the colletarel token
+        // 2. approve router contract with the collateral token
 
         _approveRouterForTokenTransfer();
 
@@ -110,6 +110,8 @@ contract GridBot {
         return trxKey;
     }
 
+    function removeFromPosition() public {}
+
     function executePosition(bytes32 key) public {
         uint16 _id = getPositionIndex(key);
 
@@ -121,6 +123,12 @@ contract GridBot {
 
         positions[_id].lastChange = block.timestamp;
     }
+
+    function gmxPositionCallback(
+        bytes32 positionKey,
+        bool isExecuted,
+        bool isIncrease
+    ) public {}
 
     /* ====== Internal Functions ====== */
 
