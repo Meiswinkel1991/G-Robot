@@ -37,6 +37,7 @@ contract TradeHelper {
     event PositionRequestEdited(bytes32 positionKey, bool isExecuted);
 
     constructor(
+        address _routerGMX,
         address _positionRouterGMX,
         address _vaultGMX,
         address _tokenAddressUSDC
@@ -44,6 +45,7 @@ contract TradeHelper {
         tokenAddressUSDC = _tokenAddressUSDC;
         positionRouterGMX = _positionRouterGMX;
         vaultGMX = _vaultGMX;
+        routerGMX = _routerGMX;
     }
 
     receive() external payable {}
@@ -79,18 +81,18 @@ contract TradeHelper {
         console.log(_price);
 
         bytes32 positionKey = IPositionRouter(positionRouterGMX)
-            .createIncreasePosition(
-                _path,
-                _indexToken,
-                _amountIn,
-                0,
-                _positionSize * 10 ** 24,
-                _isLong,
-                _price,
-                _executionFee,
-                _reveralCode,
-                address(this)
-            );
+            .createIncreasePosition{value: _executionFee}(
+            _path,
+            _indexToken,
+            _amountIn,
+            0,
+            _positionSize * 10 ** 24,
+            _isLong,
+            _price,
+            _executionFee,
+            _reveralCode,
+            address(this)
+        );
 
         lastPositionRequests[positionKey] = PositionRequest(
             _price,
@@ -99,6 +101,7 @@ contract TradeHelper {
             false,
             true
         );
+        console.log(lastPositionRequests[positionKey].entryPrice);
     }
 
     function createDecreaseRequest(
@@ -184,4 +187,14 @@ contract TradeHelper {
     }
 
     /*====== Pure / View Functions ======*/
+
+    function getPositions() external view returns (bytes32[] memory) {
+        return positions;
+    }
+
+    function getlastPositionRequests(
+        bytes32 key
+    ) external view returns (PositionRequest memory) {
+        return lastPositionRequests[key];
+    }
 }
