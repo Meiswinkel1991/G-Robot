@@ -56,7 +56,7 @@ contract GridBot {
     /* ====== Main Functions ====== */
     function executeLimitOrder() external {}
 
-    function openPosition(uint256 _amoutIn, uint8 _leverage) public {
+    function openPosition(uint256 _amoutIn, uint256 _sizeDelta) public {
         // 1. approvePlugin router
 
         _approveRouterPlugin();
@@ -78,8 +78,6 @@ contract GridBot {
 
         console.log(_price);
 
-        uint sizeDelta = _amoutIn * _leverage;
-
         trxKey = IPositionRouter(positionRouterGMX).createIncreasePosition{
             value: EXECUTION_FEE
         }(
@@ -87,7 +85,7 @@ contract GridBot {
             tokenAddressWETH,
             _amoutIn,
             0,
-            sizeDelta * 10 ** 24 * 2, //TODO: Code the correct leverage
+            _sizeDelta * 10 ** 24, //TODO: Code the correct leverage
             true,
             _price,
             EXECUTION_FEE,

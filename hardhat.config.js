@@ -1,4 +1,5 @@
 require("@nomicfoundation/hardhat-toolbox");
+require("./tasks");
 require("dotenv").config();
 
 /** @type import('hardhat/config').HardhatUserConfig */

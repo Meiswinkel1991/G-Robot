@@ -38,7 +38,11 @@ async function main() {
 
   const _balance = await ethers.provider.getBalance(bot.address);
 
-  console.log(_balance);
+  console.log(
+    `Bot ETH Balance: ${ethers.utils.formatEther(_balance)}${
+      ethers.constants.EtherSymbol
+    }`
+  );
 
   const USDCAddress = networkConfig[chainId]["USDC"];
   const USDC = await ethers.getContractAt("IERC20Metadata", USDCAddress);
@@ -46,13 +50,14 @@ async function main() {
   const botBalanceUSDC = await USDC.balanceOf(bot.address);
 
   const _amountIn = botBalanceUSDC.div(ethers.BigNumber.from("100"));
-  console.log(_amountIn);
-
-  const _leverage = 1;
 
   console.log(`Add following USDC Amount ${_amountIn}`);
 
-  await bot.openPosition(_amountIn, _leverage);
+  const positionSize = _amountIn * 2;
+
+  console.log(`Position Leverage: 2 ; Position Size:${positionSize}`);
+
+  await bot.openPosition(_amountIn, positionSize);
 
   const key = await bot.getTrxKey();
 
@@ -63,6 +68,8 @@ async function main() {
   const position = await bot.getPositionInfo(0);
 
   console.log(position);
+
+  console.log(`Position size: ${position[0].toString()}`);
 }
 
 main().catch((error) => {
