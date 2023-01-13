@@ -14,7 +14,7 @@ npx hardhat run scripts/deploy.js
 
 ## To Do's
 
-1. Code a limit order and execute the order
-2. Code a position decreaseing function
-3. code a take profit function
-4. transfer the winnings to an automated stacker
+1. Code Router for controlling all TradeHelper
+2. Deploy a proxy contract as tradeHelper
+3. Tradehelper Proxy is only be controlled by Router
+4. Router contract have no admin

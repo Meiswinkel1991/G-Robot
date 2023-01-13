@@ -39,6 +39,14 @@ contract TradeHelper {
     bool private pluginApproved;
     uint8 private stableTokenDecimals;
 
+    uint8 private leverage;
+
+    uint256 private gridSize;
+    uint256 private tradingSize;
+
+    uint256 private longLimitPrice;
+    uint256 private shortLimitPrice;
+
     bytes32 private longPosition;
     bytes32 private shortPosition;
 
@@ -294,5 +302,9 @@ contract TradeHelper {
         bool _isLong
     ) external view returns (PositionRequest memory) {
         return _isLong ? longPositionRequest : shortPositionRequest;
+    }
+
+    function getLimitPrice(bool _isLong) external view returns (uint256) {
+        return _isLong ? longLimitPrice : shortLimitPrice;
     }
 }
