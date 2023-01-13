@@ -3,6 +3,8 @@
 pragma solidity ^0.8.9;
 
 interface IPositionRouter {
+    function maxGlobalLongSizes(address _token) external view returns (uint256);
+
     function increasePositionRequestKeysStart() external returns (uint256);
 
     function decreasePositionRequestKeysStart() external returns (uint256);
