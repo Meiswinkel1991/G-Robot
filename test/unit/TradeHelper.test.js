@@ -26,6 +26,7 @@ describe("TradeHelper Unit test", () => {
     const TradeHelper = await ethers.getContractFactory("TradeHelper");
     const ProjectSettings = await ethers.getContractFactory("ProjectSettings");
     const Router = await ethers.getContractFactory("Router");
+    const vaultGMX = await ethers.getContractAt("IVault", vaultAddress);
 
     // 1. Deploy the settings
     const projectSettings = await ProjectSettings.deploy();
@@ -111,6 +112,8 @@ describe("TradeHelper Unit test", () => {
       owner,
       tokenAddressWBTC,
       USDC,
+      vaultGMX,
+      tokenAddress,
     };
   }
 
@@ -127,7 +130,7 @@ describe("TradeHelper Unit test", () => {
   }
 
   describe("#createIncreasePositionRequest", () => {
-    it("it should successfull create a new Increase Request", async () => {
+    it("should successfull create a new long Increase Request", async () => {
       const { tradeHelper, balanceTradeHelper } = await loadFixture(
         deployTradeHelperFixture
       );
@@ -143,6 +146,25 @@ describe("TradeHelper Unit test", () => {
       );
 
       const positionRequest = await tradeHelper.getlastPositionRequest(true);
+
+      assert.equal(positionRequest.executed, false);
+      assert(positionRequest.amount.gt(ethers.constants.Zero));
+    });
+
+    it("should succesfull create a new short Increase request", async () => {
+      const { tradeHelper } = await loadFixture(deployTradeHelperFixture);
+
+      const _amountIn = ethers.utils.parseUnits("10", 6);
+
+      const _deltaSize = ethers.utils.parseUnits("20", 30);
+
+      await tradeHelper.createIncreasePositionRequest(
+        false,
+        _amountIn,
+        _deltaSize
+      );
+
+      const positionRequest = await tradeHelper.getlastPositionRequest(false);
 
       assert.equal(positionRequest.executed, false);
       assert(positionRequest.amount.gt(ethers.constants.Zero));
@@ -181,7 +203,6 @@ describe("TradeHelper Unit test", () => {
       //start decreasing actual position
 
       const balnaceBefore = await USDC.balanceOf(tradeHelper.address);
-      console.log(`Balance before decreasing Position ${balnaceBefore}`);
 
       const sizeDecrease = ethers.utils.parseUnits("10", 6);
       await tradeHelper.createDecreasePositionRequest(true, 0, sizeDecrease);
@@ -190,6 +211,47 @@ describe("TradeHelper Unit test", () => {
 
       assert.equal(request.executed, false);
       assert.equal(request.increase, false);
+    });
+
+    it("should close the total position", async () => {
+      const { tradeHelper, vaultGMX, tokenAddress, tokenAddressWBTC, owner } =
+        await loadFixture(deployTradeHelperFixture);
+
+      await openPosition(tradeHelper);
+
+      await time.increase(181);
+
+      await tradeHelper.executePosition(true);
+
+      //start decreasing actual position
+      let position = await vaultGMX.getPosition(
+        tradeHelper.address,
+        tokenAddressWBTC,
+        tokenAddressWBTC,
+        true
+      );
+
+      await tradeHelper.createDecreasePositionRequest(
+        true,
+        position[1],
+        position[0]
+      );
+
+      const request = await tradeHelper.getlastPositionRequest(true);
+
+      console.log(request);
+      await time.increase(181);
+
+      await tradeHelper.executePosition(true);
+
+      position = await vaultGMX.getPosition(
+        tradeHelper.address,
+        tokenAddressWBTC,
+        tokenAddressWBTC,
+        true
+      );
+
+      console.log(position);
     });
   });
 });

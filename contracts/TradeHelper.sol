@@ -19,10 +19,10 @@ contract TradeHelper is Initializable {
         uint256 entryPrice;
         uint256 size;
         uint256 exitPrice;
-        bool isLong;
     }
 
     struct PositionRequest {
+        bytes32 requestKey;
         uint256 entryPrice;
         uint256 amount;
         uint256 size;
@@ -37,25 +37,18 @@ contract TradeHelper is Initializable {
     address private indexTokenAddress;
 
     /*====== State Variables ======*/
-    bool private pluginApproved;
+    bytes32 private referralCode;
 
-    bytes32 private longPosition;
-    bytes32 private shortPosition;
+    bool private pluginApproved;
 
     PositionRequest private longPositionRequest;
     PositionRequest private shortPositionRequest;
 
-    PositionData private longPositionData;
-    PositionData private shortPositionData;
+    PositionData[] private longPositions;
+    PositionData[] private shortPositions;
 
     /*====== Events ======*/
-    event PositionRequestEdited(bytes32 positionKey, bool isExecuted);
-    event UpdateBotSetting(
-        uint8 leverage,
-        uint256 tradingSize,
-        uint256 gridSize
-    );
-    event BotStarted(uint256 longLimitPrice, uint256 shortLimitPrice);
+    event PositionRequested(bytes32 positionKey, bool isExecuted);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -65,11 +58,13 @@ contract TradeHelper is Initializable {
     function initialize(
         address _projectSettings,
         address _tokenAddressUSDC,
-        address _indexTokenAddress
+        address _indexTokenAddress,
+        bytes32 _referralCode
     ) public initializer {
         projectSettings = _projectSettings;
         stableTokenAddress = _tokenAddressUSDC;
         indexTokenAddress = _indexTokenAddress;
+        referralCode = _referralCode;
     }
 
     receive() external payable {}
@@ -119,10 +114,21 @@ contract TradeHelper is Initializable {
             IProjectSettings(projectSettings).getPositionRouterGMX()
         ).maxGlobalLongSizes(indexTokenAddress);
 
-        bytes32 _key = _isLong ? longPosition : shortPosition;
-        IPositionRouter(
-            IProjectSettings(projectSettings).getPositionRouterGMX()
-        ).executeIncreasePosition(_key, payable(address(this)));
+        bytes32 _key = getlastPositionRequest(_isLong).requestKey;
+
+        bool _increase = _isLong
+            ? longPositionRequest.increase
+            : shortPositionRequest.increase;
+
+        if (_increase) {
+            IPositionRouter(
+                IProjectSettings(projectSettings).getPositionRouterGMX()
+            ).executeIncreasePosition(_key, payable(address(this)));
+        } else {
+            IPositionRouter(
+                IProjectSettings(projectSettings).getPositionRouterGMX()
+            ).executeDecreasePosition(_key, payable(address(this)));
+        }
     }
 
     function gmxPositionCallback(
@@ -130,13 +136,11 @@ contract TradeHelper is Initializable {
         bool isExecuted,
         bool /* */
     ) public {
-        if (longPosition == positionKey) {
+        if (getlastPositionRequest(true).requestKey == positionKey) {
             longPositionRequest.executed = isExecuted;
         } else {
             shortPositionRequest.executed = isExecuted;
         }
-
-        emit PositionRequestEdited(positionKey, isExecuted);
     }
 
     /*====== Internal Functions ======*/
@@ -176,7 +180,7 @@ contract TradeHelper is Initializable {
             _isLong,
             _price,
             _executionFee,
-            bytes32(0),
+            referralCode,
             address(this)
         );
 
@@ -215,6 +219,8 @@ contract TradeHelper is Initializable {
 
         uint256 _price = IVault(IProjectSettings(projectSettings).getVaultGMX())
             .getMinPrice(indexTokenAddress);
+
+        console.log(_price);
 
         bytes32 positionKey = IPositionRouter(
             IProjectSettings(projectSettings).getPositionRouterGMX()
@@ -258,10 +264,8 @@ contract TradeHelper is Initializable {
         uint256 _size,
         bool _increase
     ) internal {
-        if (longPosition == bytes32(0)) {
-            longPosition = positionKey;
-        }
         longPositionRequest = PositionRequest(
+            positionKey,
             _price,
             _amount,
             _size,
@@ -277,10 +281,8 @@ contract TradeHelper is Initializable {
         uint256 _size,
         bool _increase
     ) internal {
-        if (shortPosition == bytes32(0)) {
-            shortPosition = positionKey;
-        }
         shortPositionRequest = PositionRequest(
+            positionKey,
             _price,
             _amount,
             _size,
@@ -323,13 +325,17 @@ contract TradeHelper is Initializable {
 
     /*====== Pure / View Functions ======*/
 
-    function getPositionKey(bool _isLong) external view returns (bytes32) {
-        return _isLong ? longPosition : shortPosition;
-    }
-
     function getlastPositionRequest(
         bool _isLong
-    ) external view returns (PositionRequest memory) {
+    ) public view returns (PositionRequest memory) {
         return _isLong ? longPositionRequest : shortPositionRequest;
+    }
+
+    function getStableToken() external view returns (address) {
+        return stableTokenAddress;
+    }
+
+    function getIndexToken() external view returns (address) {
+        return indexTokenAddress;
     }
 }
