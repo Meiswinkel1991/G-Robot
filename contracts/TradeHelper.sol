@@ -12,8 +12,11 @@ import "./interfaces/IERC20Metadata.sol";
 import "./interfaces/IVault.sol";
 import "./interfaces/IRouter.sol";
 import "@openzeppelin/contracts/proxy/utils/Initializable.sol";
+import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
 contract TradeHelper is Initializable {
+    using SafeMath for uint256;
+
     struct PositionData {
         uint256 amount;
         uint256 entryPrice;
@@ -31,12 +34,14 @@ contract TradeHelper is Initializable {
     }
 
     /*====== GMX Addresses ======*/
-    address private projectSettings;
 
     address private stableTokenAddress;
     address private indexTokenAddress;
 
     /*====== State Variables ======*/
+
+    IProjectSettings private projectSettings;
+
     bytes32 private referralCode;
 
     bool private pluginApproved;
@@ -48,6 +53,13 @@ contract TradeHelper is Initializable {
     PositionData[] private shortPositions;
 
     /*====== Events ======*/
+
+    event RequestLongPosition(
+        bytes32 requestKey,
+        uint256 amountIn,
+        uint8 leverage
+    );
+
     event PositionRequested(bytes32 positionKey, bool isExecuted);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -61,7 +73,7 @@ contract TradeHelper is Initializable {
         address _indexTokenAddress,
         bytes32 _referralCode
     ) public initializer {
-        projectSettings = _projectSettings;
+        projectSettings = IProjectSettings(_projectSettings);
         stableTokenAddress = _tokenAddressUSDC;
         indexTokenAddress = _indexTokenAddress;
         referralCode = _referralCode;
@@ -73,27 +85,80 @@ contract TradeHelper is Initializable {
 
     /*====== Main Functions ======*/
 
-    function createIncreasePositionRequest(
-        bool _isLong,
-        uint256 _amountIn,
-        uint256 _deltaSize
-    ) public {
+    function swapToIndexToken(uint256 _amountIn) public {
+        // 1. approve Router Contract
+        _approveRouterForTokenTransfer(_amountIn, stableTokenAddress);
+
+        // 2. call the swap function from router
+        IRouter _router = IRouter(projectSettings.getRouterGMX());
+
+        //Swap Function: minPrice(in) / maxPrice(out) * amountIn - Fees
+
+        address[] memory _path = new address[](2);
+
+        _path[0] = stableTokenAddress;
+        _path[1] = indexTokenAddress;
+
+        _router.swap(_path, _amountIn, 0, address(this));
+    }
+
+    function createLongPosition(uint8 _leverage) public {
         // 1. approvePlugin
         _approveRouterPlugin();
 
-        // 2. approve router contract with the collateral token
-        _approveRouterForTokenTransfer(_amountIn);
+        // 2. approve Contract for the token
+        uint256 _amountAvailable = IERC20(indexTokenAddress).balanceOf(
+            address(this)
+        );
+        _approveRouterForTokenTransfer(_amountAvailable, indexTokenAddress);
 
-        // 3. create a increase position with positionRouter
-        _createIncreasePositionRequest(_isLong, _amountIn, _deltaSize);
-    }
+        // 3. request the position
+        address[] memory _path = new address[](1);
 
-    function createDecreasePositionRequest(
-        bool _isLong,
-        uint256 _amountOut,
-        uint256 _deltaSize
-    ) public {
-        _createDecreasePositionRequest(_isLong, _amountOut, _deltaSize);
+        _path[0] = indexTokenAddress;
+
+        IPositionRouter _router = IPositionRouter(
+            projectSettings.getPositionRouterGMX()
+        );
+        console.log(_amountAvailable);
+        uint256 _price = IVault(projectSettings.getVaultGMX()).getMaxPrice(
+            indexTokenAddress
+        );
+        console.log(_price);
+        uint256 _sizeDelta = _price
+            .mul(_leverage)
+            .div(10 ** IERC20Metadata(indexTokenAddress).decimals())
+            .mul(_amountAvailable);
+
+        console.log(_sizeDelta);
+
+        uint256 _executionFee = _router.minExecutionFee();
+
+        bytes32 _requestKey = _router.createIncreasePosition{
+            value: _executionFee
+        }(
+            _path,
+            indexTokenAddress,
+            _amountAvailable,
+            0,
+            _sizeDelta,
+            true,
+            _price,
+            _executionFee,
+            referralCode,
+            address(this)
+        );
+
+        longPositionRequest = PositionRequest(
+            _requestKey,
+            _price,
+            _amountAvailable,
+            _sizeDelta,
+            false,
+            true
+        );
+
+        emit RequestLongPosition(_requestKey, _amountAvailable, _leverage);
     }
 
     function executePosition(bool _isLong) public {
@@ -103,31 +168,18 @@ contract TradeHelper is Initializable {
 
         require(!isExecuted, "Last Request already executed");
 
-        //TODO: check if liquid amount of GMX is enough
-        // guaranteedUSD(token):vault + size < maxGlobalLongSize: positionRouter
-
-        uint256 amountNeeded = IVault(
-            IProjectSettings(projectSettings).getVaultGMX()
-        ).guaranteedUsd(indexTokenAddress);
-
-        uint256 amountAvailable = IPositionRouter(
-            IProjectSettings(projectSettings).getPositionRouterGMX()
-        ).maxGlobalLongSizes(indexTokenAddress);
-
-        bytes32 _key = getlastPositionRequest(_isLong).requestKey;
+        bytes32 _key = getLastRequest(_isLong).requestKey;
 
         bool _increase = _isLong
             ? longPositionRequest.increase
             : shortPositionRequest.increase;
 
         if (_increase) {
-            IPositionRouter(
-                IProjectSettings(projectSettings).getPositionRouterGMX()
-            ).executeIncreasePosition(_key, payable(address(this)));
+            IPositionRouter(projectSettings.getPositionRouterGMX())
+                .executeIncreasePosition(_key, payable(address(this)));
         } else {
-            IPositionRouter(
-                IProjectSettings(projectSettings).getPositionRouterGMX()
-            ).executeDecreasePosition(_key, payable(address(this)));
+            IPositionRouter(projectSettings.getPositionRouterGMX())
+                .executeDecreasePosition(_key, payable(address(this)));
         }
     }
 
@@ -136,7 +188,7 @@ contract TradeHelper is Initializable {
         bool isExecuted,
         bool /* */
     ) public {
-        if (getlastPositionRequest(true).requestKey == positionKey) {
+        if (getLastRequest(true).requestKey == positionKey) {
             longPositionRequest.executed = isExecuted;
         } else {
             shortPositionRequest.executed = isExecuted;
@@ -144,152 +196,6 @@ contract TradeHelper is Initializable {
     }
 
     /*====== Internal Functions ======*/
-
-    function _createIncreasePositionRequest(
-        bool _isLong,
-        uint256 _amountIn,
-        uint256 _deltaSize
-    ) internal {
-        uint256 _price = IVault(IProjectSettings(projectSettings).getVaultGMX())
-            .getMaxPrice(indexTokenAddress);
-
-        uint8 counter = 1;
-        if (_isLong) {
-            counter = 2;
-        }
-        address[] memory _path = new address[](counter);
-
-        _path[0] = stableTokenAddress;
-
-        if (_isLong) {
-            _path[1] = indexTokenAddress;
-        }
-
-        uint256 _executionFee = IPositionRouter(
-            IProjectSettings(projectSettings).getPositionRouterGMX()
-        ).minExecutionFee();
-
-        bytes32 positionKey = IPositionRouter(
-            IProjectSettings(projectSettings).getPositionRouterGMX()
-        ).createIncreasePosition{value: _executionFee}(
-            _path,
-            indexTokenAddress,
-            _amountIn,
-            0,
-            _deltaSize,
-            _isLong,
-            _price,
-            _executionFee,
-            referralCode,
-            address(this)
-        );
-
-        if (_isLong) {
-            _updateLongPosition(
-                positionKey,
-                _price,
-                _amountIn,
-                _deltaSize,
-                true
-            );
-        } else {
-            _updateShortPosition(
-                positionKey,
-                _price,
-                _amountIn,
-                _deltaSize,
-                true
-            );
-        }
-    }
-
-    function _createDecreasePositionRequest(
-        bool _isLong,
-        uint256 _amountOut,
-        uint256 _deltaSize
-    ) internal {
-        address[] memory _path = new address[](2);
-
-        _path[0] = indexTokenAddress;
-        _path[1] = stableTokenAddress;
-
-        uint256 _executionFee = IPositionRouter(
-            IProjectSettings(projectSettings).getPositionRouterGMX()
-        ).minExecutionFee();
-
-        uint256 _price = IVault(IProjectSettings(projectSettings).getVaultGMX())
-            .getMinPrice(indexTokenAddress);
-
-        console.log(_price);
-
-        bytes32 positionKey = IPositionRouter(
-            IProjectSettings(projectSettings).getPositionRouterGMX()
-        ).createDecreasePosition{value: _executionFee}(
-            _path,
-            indexTokenAddress,
-            _amountOut,
-            _deltaSize,
-            _isLong,
-            address(this),
-            _price,
-            0,
-            _executionFee,
-            false,
-            address(this)
-        );
-
-        if (_isLong) {
-            _updateLongPosition(
-                positionKey,
-                _price,
-                _amountOut,
-                _deltaSize,
-                false
-            );
-        } else {
-            _updateShortPosition(
-                positionKey,
-                _price,
-                _amountOut,
-                _deltaSize,
-                false
-            );
-        }
-    }
-
-    function _updateLongPosition(
-        bytes32 positionKey,
-        uint256 _price,
-        uint256 _amount,
-        uint256 _size,
-        bool _increase
-    ) internal {
-        longPositionRequest = PositionRequest(
-            positionKey,
-            _price,
-            _amount,
-            _size,
-            false,
-            _increase
-        );
-    }
-
-    function _updateShortPosition(
-        bytes32 positionKey,
-        uint256 _price,
-        uint256 _amount,
-        uint256 _size,
-        bool _increase
-    ) internal {
-        shortPositionRequest = PositionRequest(
-            positionKey,
-            _price,
-            _amount,
-            _size,
-            false,
-            _increase
-        );
-    }
 
     function _approveRouterPlugin() internal {
         if (!pluginApproved) {
@@ -302,30 +208,28 @@ contract TradeHelper is Initializable {
         pluginApproved = true;
     }
 
-    function _approveRouterForTokenTransfer(uint256 _tokenAmount) internal {
-        uint256 _allowance = IERC20(stableTokenAddress).allowance(
+    function _approveRouterForTokenTransfer(
+        uint256 _tokenAmount,
+        address _token
+    ) internal {
+        uint256 _allowance = IERC20(_token).allowance(
             address(this),
-            IProjectSettings(projectSettings).getRouterGMX()
+            projectSettings.getRouterGMX()
         );
 
         if (_allowance < _tokenAmount) {
             require(
-                IERC20(stableTokenAddress).approve(
-                    IProjectSettings(projectSettings).getRouterGMX(),
+                IERC20(_token).approve(
+                    projectSettings.getRouterGMX(),
                     _tokenAmount
                 )
             );
         }
     }
 
-    /**
-     * @dev - update all detailed legs of one position. Remove or add the leg to the list.
-     */
-    function _updateLegsOfPosition() internal {}
-
     /*====== Pure / View Functions ======*/
 
-    function getlastPositionRequest(
+    function getLastRequest(
         bool _isLong
     ) public view returns (PositionRequest memory) {
         return _isLong ? longPositionRequest : shortPositionRequest;
