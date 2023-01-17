@@ -25,7 +25,7 @@ describe("TradeHelper Unit test", () => {
 
     const TradeHelper = await ethers.getContractFactory("TradeHelper");
     const ProjectSettings = await ethers.getContractFactory("ProjectSettings");
-    const Router = await ethers.getContractFactory("Router");
+    const BotManager = await ethers.getContractFactory("BotManager");
     const vaultGMX = await ethers.getContractAt("IVault", vaultAddress);
     const positionRouterGMX = await ethers.getContractAt(
       "IPositionRouter",
@@ -45,20 +45,20 @@ describe("TradeHelper Unit test", () => {
 
     const tradeHelperImplementaion = await TradeHelper.deploy();
 
-    const routerContract = await Router.deploy();
+    const managerContract = await BotManager.deploy();
 
-    await routerContract.setTradeHelperImplemenation(
+    await managerContract.setTradeHelperImplemenation(
       tradeHelperImplementaion.address
     );
 
-    await routerContract.setProjectSettingAddress(projectSettings.address);
+    await managerContract.setProjectSettingAddress(projectSettings.address);
 
     // 3. Deploy a proxy contract for testing
     const gridSize = ethers.utils.parseUnits("100", 30);
 
     const tradingSize = ethers.utils.parseUnits("10", 6);
 
-    await routerContract.setUpNewBot(
+    await managerContract.setUpNewBot(
       tokenAddress,
       tokenAddressWBTC,
       2,
@@ -66,14 +66,9 @@ describe("TradeHelper Unit test", () => {
       tradingSize
     );
 
-    const botList = await routerContract.getBotKeyList();
+    const botList = await managerContract.getBotContracts();
 
-    const botInfo = await routerContract.getBotSetting(botList[0]);
-
-    const tradeHelper = await ethers.getContractAt(
-      "TradeHelper",
-      botInfo.contractAddress
-    );
+    const tradeHelper = await ethers.getContractAt("TradeHelper", botList[0]);
 
     const [owner, user, spender] = await ethers.getSigners();
 
@@ -120,7 +115,7 @@ describe("TradeHelper Unit test", () => {
       WBTC,
       vaultGMX,
       tokenAddress,
-      routerGMX: positionRouterGMX,
+      positionRouterGMX,
     };
   }
 
@@ -177,7 +172,7 @@ describe("TradeHelper Unit test", () => {
       await tradeHelper.swapToIndexToken(ethers.utils.parseUnits("100", 6));
 
       //open a request with a leverage of 10
-      await expect(tradeHelper.createLongPosition(10)).to.emit(
+      await expect(tradeHelper.createLongPosition(10, 100)).to.emit(
         tradeHelper,
         "RequestLongPosition"
       );
@@ -188,7 +183,7 @@ describe("TradeHelper Unit test", () => {
 
       await tradeHelper.swapToIndexToken(ethers.utils.parseUnits("100", 6));
 
-      await tradeHelper.createLongPosition(10);
+      await tradeHelper.createLongPosition(10, 100);
 
       const request = await tradeHelper.getLastRequest(true);
 
@@ -198,13 +193,13 @@ describe("TradeHelper Unit test", () => {
 
   describe("#executePosition", () => {
     it("should execute the request after 181 seconds", async () => {
-      const { tradeHelper, routerGMX } = await loadFixture(
+      const { tradeHelper, vaultGMX } = await loadFixture(
         deployTradeHelperFixture
       );
 
       await tradeHelper.swapToIndexToken(ethers.utils.parseUnits("100", 6));
 
-      await tradeHelper.createLongPosition(10);
+      await tradeHelper.createLongPosition(10, 100);
 
       const request = await tradeHelper.getLastRequest(true);
 

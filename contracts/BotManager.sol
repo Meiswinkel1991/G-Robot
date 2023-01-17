@@ -9,9 +9,8 @@ import "./interfaces/IVault.sol";
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 import "@openzeppelin/contracts/proxy/Clones.sol";
 
-contract Router {
+contract BotManager {
     struct BotSetting {
-        address contractAddress;
         address owner;
         bool isActivated;
         uint8 leverage;
@@ -19,6 +18,14 @@ contract Router {
         uint256 gridSize;
         uint256 longLimitPrice;
         uint256 shortLimitPrice;
+    }
+
+    struct PositionData {
+        uint256 col;
+        uint256 size;
+        uint256 limitTrigger;
+        uint256 exitPrice;
+        bool long;
     }
 
     bytes32 public referralCode =
@@ -29,18 +36,19 @@ contract Router {
     address private tradeHelperImplementation;
     address private projectSettings;
 
-    bytes32[] private botKeys;
-    mapping(bytes32 => BotSetting) private botSettings;
+    address[] private bots;
+    mapping(address => BotSetting) private botSettings;
+    mapping(address => PositionData[]) private positionDatas;
     mapping(address => address) private priceFeedAddresses;
     mapping(address => uint8) private priceFeedDecimals;
 
     /*====== Events ======*/
     event PriceFeedUpdated(address indexed token, address indexed priceFeed);
 
-    event BotInitialized(bytes32 botKey, address indexToken, address owner);
+    event BotInitialized(address botAddress, address indexToken, address owner);
 
     event BotActivated(
-        bytes32 botKey,
+        address botAddress,
         address indexToken,
         uint256 longLimitOrder,
         uint256 shortLimitOrder
@@ -55,16 +63,6 @@ contract Router {
         uint256 _gridSize,
         uint256 _tradingSize
     ) public {
-        //1. Initial the Settings in the Router Contract
-
-        bytes32 _botKey = getBotKey(
-            msg.sender,
-            _leverage,
-            _stableToken,
-            _indexToken
-        );
-        require(!_botExists(_botKey), "Router: Bot already exist");
-        //2. Deploy a clone of the TradeHelper Base Contract
         address _newTradeHelper = _createNewTradeHelperContract();
 
         ITradeHelper(_newTradeHelper).initialize(
@@ -74,8 +72,9 @@ contract Router {
             referralCode
         );
 
+        bots.push(_newTradeHelper);
+
         BotSetting memory _newSetting = BotSetting(
-            _newTradeHelper,
             msg.sender,
             false,
             _leverage,
@@ -85,71 +84,50 @@ contract Router {
             0
         );
 
-        botKeys.push(_botKey);
+        botSettings[_newTradeHelper] = _newSetting;
 
-        botSettings[_botKey] = _newSetting;
-
-        emit BotInitialized(_botKey, _indexToken, msg.sender);
+        emit BotInitialized(_newTradeHelper, _indexToken, msg.sender);
     }
 
-    function activateBot(bytes32 _botKey) public {
-        require(_botExists(_botKey), "Router: Bot doesnt exist");
-        BotSetting memory _setting = botSettings[_botKey];
+    function activateBot(address _bot) public {
+        require(_botExists(_bot), "BotManager: Bot doesnt exist");
+        BotSetting memory _setting = botSettings[_bot];
 
-        _isBotOwner(_botKey);
-        _notActiveBot(_botKey);
+        _isBotOwner(_bot);
+        _notActiveBot(_bot);
 
-        address _indexToken = ITradeHelper(_setting.contractAddress)
-            .getIndexToken();
+        address _indexToken = ITradeHelper(_bot).getIndexToken();
 
         _hasPriceFeed(_indexToken);
 
-        botSettings[_botKey].longLimitPrice =
+        botSettings[_bot].longLimitPrice =
             getPrice(_indexToken) +
             _setting.gridSize;
 
-        botSettings[_botKey].shortLimitPrice =
+        botSettings[_bot].shortLimitPrice =
             getPrice(_indexToken) -
             _setting.gridSize;
 
-        botSettings[_botKey].isActivated = true;
+        botSettings[_bot].isActivated = true;
 
         emit BotActivated(
-            _botKey,
+            _bot,
             _indexToken,
-            botSettings[_botKey].longLimitPrice,
-            botSettings[_botKey].shortLimitPrice
+            botSettings[_bot].longLimitPrice,
+            botSettings[_bot].shortLimitPrice
         );
     }
 
-    function closingAllPositions(bytes32 _botKey) external {
-        require(_botExists(_botKey), "Router: Bot doesnt exist");
-        BotSetting memory _setting = botSettings[_botKey];
-
-        _isBotOwner(_botKey);
-        _notActiveBot(_botKey);
-
-        address _indexToken = ITradeHelper(_setting.contractAddress)
-            .getIndexToken();
-
-        address _stableToken = ITradeHelper(_setting.contractAddress)
-            .getStableToken();
-
-        IVault _vault = IVault(IProjectSettings(projectSettings).getVaultGMX());
-
-        (uint256 size, uint256 col, , , , , , ) = _vault.getPosition(
-            _setting.contractAddress,
-            _stableToken,
-            _indexToken,
-            true
-        );
-
-        ITradeHelper(_setting.contractAddress).createDecreasePositionRequest(
-            true,
-            col,
-            size
-        );
+    function updatePositions(
+        bool _increase,
+        uint256 _limitTrigger,
+        uint256 _col,
+        uint256 _size
+    ) external {
+        _isBotContract();
     }
+
+    /*====== Setup Functions ======*/
 
     function setPriceFeed(address _token, address _priceFeed) public {
         priceFeedAddresses[_token] = _priceFeed;
@@ -169,12 +147,6 @@ contract Router {
         referralCode = _code;
     }
 
-    function checkupKeep() external view returns (bool, bytes32) {
-        //1. Check all bots if some limits are reached
-
-        for (uint i = 0; i < botKeys.length; i++) {}
-    }
-
     /*====== Internal Functions ======*/
     function _createNewTradeHelperContract() internal returns (address) {
         address _cloneContract = Clones.clone(tradeHelperImplementation);
@@ -182,43 +154,50 @@ contract Router {
         return _cloneContract;
     }
 
-    function _isBotOwner(bytes32 _botKey) internal view {
+    function _isBotOwner(address _bot) internal view {
         require(
-            msg.sender == botSettings[_botKey].owner,
-            "Router: Not the owner of the bot"
+            msg.sender == botSettings[_bot].owner,
+            "BotManager: Not the owner of the bot"
         );
     }
 
-    function _notActiveBot(bytes32 _botKey) internal view {
+    function _notActiveBot(address _bot) internal view {
         require(
-            !botSettings[_botKey].isActivated,
-            "Router: Bot already activated"
+            !botSettings[_bot].isActivated,
+            "BotManager: Bot already activated"
         );
     }
 
-    function _botExists(bytes32 _botKey) internal view returns (bool) {
-        for (uint i = 0; i < botKeys.length; i++) {
-            if (_botKey == botKeys[i]) {
+    function _botExists(address _bot) internal view returns (bool) {
+        for (uint i = 0; i < bots.length; i++) {
+            if (_bot == bots[i]) {
                 return true;
             }
         }
         return false;
     }
 
+    function _isBotContract() internal view {
+        bool _isBot;
+        for (uint256 i = 0; i < bots.length; i++) {
+            if (bots[i] == msg.sender) {
+                _isBot = true;
+            }
+        }
+        require(_isBot, "BotManager: Not a bot contract");
+    }
+
     function _hasPriceFeed(address _token) internal view {
         require(
             priceFeedAddresses[_token] != address(0),
-            "Router: No Price Feed initialized"
+            "BotManager: No Price Feed initialized"
         );
     }
 
-    function _checkLimitPrice(
-        bytes32 _botKey
-    ) internal view returns (bool, bool) {
-        BotSetting memory _setting = botSettings[_botKey];
+    function _checkLimitPrice(address _bot) internal view returns (bool, bool) {
+        BotSetting memory _setting = botSettings[_bot];
 
-        address _token = ITradeHelper(botSettings[_botKey].contractAddress)
-            .getStableToken();
+        address _token = ITradeHelper(_bot).getStableToken();
 
         uint256 _price = getPrice(_token);
 
@@ -237,9 +216,9 @@ contract Router {
 
     /*====== Pure / View Functions ====== */
     function getBotSetting(
-        bytes32 _botKey
+        address _bot
     ) external view returns (BotSetting memory) {
-        return botSettings[_botKey];
+        return botSettings[_bot];
     }
 
     function getBotKey(
@@ -254,8 +233,8 @@ contract Router {
             );
     }
 
-    function getBotKeyList() external view returns (bytes32[] memory) {
-        return botKeys;
+    function getBotContracts() external view returns (address[] memory) {
+        return bots;
     }
 
     function getPrice(address _token) public view returns (uint256) {

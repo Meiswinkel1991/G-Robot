@@ -5,6 +5,7 @@ pragma solidity ^0.8.9;
 import "hardhat/console.sol";
 
 import "./interfaces/protocol/IProjectSettings.sol";
+import "./interfaces/protocol/IBotManager.sol";
 
 import "./interfaces/IPositionRouter.sol";
 
@@ -17,18 +18,12 @@ import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 contract TradeHelper is Initializable {
     using SafeMath for uint256;
 
-    struct PositionData {
-        uint256 amount;
-        uint256 entryPrice;
-        uint256 size;
-        uint256 exitPrice;
-    }
-
     struct PositionRequest {
         bytes32 requestKey;
         uint256 entryPrice;
         uint256 amount;
         uint256 size;
+        uint256 limitTrigger;
         bool executed;
         bool increase;
     }
@@ -40,17 +35,21 @@ contract TradeHelper is Initializable {
 
     /*====== State Variables ======*/
 
-    IProjectSettings private projectSettings;
-
     bytes32 private referralCode;
 
     bool private pluginApproved;
 
+    uint256 private collateralLong;
+    uint256 private collateralShort;
+
+    uint256 private sizeLong;
+    uint256 private sizeShort;
+
+    IProjectSettings private projectSettings;
+    IBotManager private botManager;
+
     PositionRequest private longPositionRequest;
     PositionRequest private shortPositionRequest;
-
-    PositionData[] private longPositions;
-    PositionData[] private shortPositions;
 
     /*====== Events ======*/
 
@@ -77,6 +76,7 @@ contract TradeHelper is Initializable {
         stableTokenAddress = _tokenAddressUSDC;
         indexTokenAddress = _indexTokenAddress;
         referralCode = _referralCode;
+        botManager = IBotManager(msg.sender);
     }
 
     receive() external payable {}
@@ -102,7 +102,7 @@ contract TradeHelper is Initializable {
         _router.swap(_path, _amountIn, 0, address(this));
     }
 
-    function createLongPosition(uint8 _leverage) public {
+    function createLongPosition(uint8 _leverage, uint256 _limit) public {
         // 1. approvePlugin
         _approveRouterPlugin();
 
@@ -154,6 +154,7 @@ contract TradeHelper is Initializable {
             _price,
             _amountAvailable,
             _sizeDelta,
+            _limit,
             false,
             true
         );
@@ -186,10 +187,24 @@ contract TradeHelper is Initializable {
     function gmxPositionCallback(
         bytes32 positionKey,
         bool isExecuted,
-        bool /* */
+        bool isIncrease
     ) public {
         if (getLastRequest(true).requestKey == positionKey) {
             longPositionRequest.executed = isExecuted;
+
+            (uint256 _size, uint256 _col, , , , , , ) = IVault(
+                projectSettings.getVaultGMX()
+            ).getPosition(
+                    address(this),
+                    indexTokenAddress,
+                    indexTokenAddress,
+                    true
+                );
+            uint256 _posCollateral = isIncrease ? _col.sub(collateralLong) : 0;
+            uint256 _posSize = isIncrease ? _size.sub(sizeLong) : 0;
+
+            collateralLong = _col;
+            sizeLong = _size;
         } else {
             shortPositionRequest.executed = isExecuted;
         }
