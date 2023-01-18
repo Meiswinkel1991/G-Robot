@@ -162,6 +162,56 @@ contract TradeHelper is Initializable {
         emit RequestLongPosition(_requestKey, _amountAvailable, _leverage);
     }
 
+    function exitLongPosition(
+        uint256 _amountOut,
+        uint256 _deltaSize,
+        uint8 _slippage,
+        uint256 _limit
+    ) external {
+        _approveRouterPlugin();
+
+        IPositionRouter _router = IPositionRouter(
+            projectSettings.getPositionRouterGMX()
+        );
+
+        address[] memory _path = new address[](1);
+
+        _path[0] = indexTokenAddress;
+
+        uint256 _price = IVault(projectSettings.getVaultGMX())
+            .getMinPrice(indexTokenAddress)
+            .mul(1000 - _slippage)
+            .div(1000);
+
+        uint256 _executionFee = _router.minExecutionFee();
+
+        bytes32 _requestKey = _router.createDecreasePosition{
+            value: _executionFee
+        }(
+            _path,
+            indexTokenAddress,
+            _amountOut,
+            _deltaSize,
+            true,
+            address(this),
+            _price,
+            0,
+            _executionFee,
+            false,
+            address(this)
+        );
+
+        longPositionRequest = PositionRequest(
+            _requestKey,
+            _price,
+            _amountOut,
+            _deltaSize,
+            _limit,
+            false,
+            false
+        );
+    }
+
     function executePosition(bool _isLong) public {
         bool isExecuted = _isLong
             ? longPositionRequest.executed
@@ -256,5 +306,30 @@ contract TradeHelper is Initializable {
 
     function getIndexToken() external view returns (address) {
         return indexTokenAddress;
+    }
+
+    function getCollateral(bool _isLong) external view returns (uint256) {
+        return _isLong ? collateralLong : collateralShort;
+    }
+
+    function getPositionSize(bool _isLong) external view returns (uint256) {
+        return _isLong ? sizeLong : sizeShort;
+    }
+
+    function getFee(bool _isLong) external view returns (uint256) {
+        (uint256 _size, , , uint256 _entryFundingFee, , , , ) = IVault(
+            projectSettings.getVaultGMX()
+        ).getPosition(
+                address(this),
+                indexTokenAddress,
+                indexTokenAddress,
+                _isLong
+            );
+        return
+            IVault(projectSettings.getVaultGMX()).getFundingFee(
+                indexTokenAddress,
+                _size,
+                _entryFundingFee
+            );
     }
 }

@@ -248,4 +248,12 @@ interface IVault {
         address _indexToken,
         bool _isLong
     ) external pure returns (bytes32);
+
+    function getPositionFee(uint256 _sizeDelta) external view returns (uint256);
+
+    function getFundingFee(
+        address _token,
+        uint256 _size,
+        uint256 _entryFundingRate
+    ) external view returns (uint256);
 }

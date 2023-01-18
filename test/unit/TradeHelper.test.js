@@ -66,7 +66,7 @@ describe("TradeHelper Unit test", () => {
       tradingSize
     );
 
-    const botList = await managerContract.getBotContracts();
+    const botList = await managerContract.getBotList();
 
     const tradeHelper = await ethers.getContractAt("TradeHelper", botList[0]);
 
@@ -208,6 +208,168 @@ describe("TradeHelper Unit test", () => {
       await time.increase(181);
 
       await tradeHelper.executePosition(true);
+    });
+
+    it("should update the collateral and size of the long position", async () => {
+      const { tradeHelper, vaultGMX } = await loadFixture(
+        deployTradeHelperFixture
+      );
+
+      await tradeHelper.swapToIndexToken(ethers.utils.parseUnits("100", 6));
+
+      await tradeHelper.createLongPosition(10, 100);
+
+      // execute the request after 181 seconds
+
+      await time.increase(181);
+
+      await tradeHelper.executePosition(true);
+
+      const col = await tradeHelper.getCollateral(true);
+
+      console.log(`Collateral Long: ${ethers.utils.formatUnits(col, 30)}`);
+
+      const size = await tradeHelper.getPositionSize(true);
+
+      console.log(`Position Size Long: ${ethers.utils.formatUnits(size, 30)}`);
+
+      const request = await tradeHelper.getLastRequest(true);
+
+      assert(request.size.eq(size));
+    });
+
+    describe("#exitLongPosition", () => {
+      it("should create a new decrease request", async () => {
+        const { tradeHelper, vaultGMX } = await loadFixture(
+          deployTradeHelperFixture
+        );
+
+        const col = await tradeHelper.getCollateral(true);
+        const size = await tradeHelper.getPositionSize(true);
+
+        await tradeHelper.exitLongPosition(col.div(2), size.div(2), 10, 100);
+      });
+
+      it("should be executable after 180 seconds", async () => {
+        const { tradeHelper, WBTC, vaultGMX, tokenAddressWBTC } =
+          await loadFixture(deployTradeHelperFixture);
+
+        await tradeHelper.swapToIndexToken(ethers.utils.parseUnits("100", 6));
+
+        const balanceBitcoin = await WBTC.balanceOf(tradeHelper.address);
+        console.log(
+          `Balance WBTC: ${ethers.utils.formatUnits(balanceBitcoin, 8)}`
+        );
+
+        await tradeHelper.createLongPosition(10, 100);
+
+        // execute the request after 181 seconds
+
+        await time.increase(181);
+
+        await tradeHelper.executePosition(true);
+
+        const col = await tradeHelper.getCollateral(true);
+        const size = await tradeHelper.getPositionSize(true);
+
+        await tradeHelper.exitLongPosition(0, size, 10, 100);
+        await time.increase(181);
+        await tradeHelper.executePosition(true);
+
+        const request = await tradeHelper.getLastRequest(true);
+
+        assert(request.executed);
+
+        const _newCol = await tradeHelper.getCollateral(true);
+
+        console.log(
+          `Collateral Long: ${ethers.utils.formatUnits(_newCol, 30)}`
+        );
+
+        const _newSize = await tradeHelper.getPositionSize(true);
+
+        console.log(
+          `Position Size Long: ${ethers.utils.formatUnits(_newSize, 30)}`
+        );
+
+        const balanceBitcoinAfter = await WBTC.balanceOf(tradeHelper.address);
+        console.log(
+          `Balance WBTC: ${ethers.utils.formatUnits(balanceBitcoinAfter, 8)}`
+        );
+      });
+
+      it("should decrease the half of the position", async () => {
+        const { tradeHelper, WBTC, vaultGMX, USDC } = await loadFixture(
+          deployTradeHelperFixture
+        );
+
+        const balanceUSDC = await USDC.balanceOf(tradeHelper.address);
+        console.log(
+          `Balance USDC: ${ethers.utils.formatUnits(balanceUSDC, 6)}`
+        );
+
+        await tradeHelper.swapToIndexToken(ethers.utils.parseUnits("100", 6));
+
+        let balanceBitcoin = await WBTC.balanceOf(tradeHelper.address);
+        console.log(
+          `Balance WBTC: ${ethers.utils.formatUnits(balanceBitcoin, 8)}`
+        );
+
+        await tradeHelper.createLongPosition(10, 100);
+
+        // execute the request after 181 seconds
+
+        await time.increase(181);
+
+        await tradeHelper.executePosition(true);
+
+        await time.increase(181);
+        await tradeHelper.swapToIndexToken(ethers.utils.parseUnits("40", 6));
+
+        balanceBitcoin = await WBTC.balanceOf(tradeHelper.address);
+        console.log(
+          `Balance WBTC: ${ethers.utils.formatUnits(balanceBitcoin, 8)}`
+        );
+
+        await tradeHelper.createLongPosition(10, 100);
+
+        // execute the request after 181 seconds
+
+        await time.increase(181);
+
+        await tradeHelper.executePosition(true);
+
+        //Start decreasing 100 USDC
+
+        const col = await tradeHelper.getCollateral(true);
+        console.log(col);
+        const size = await tradeHelper.getPositionSize(true);
+        console.log(size);
+        await tradeHelper.exitLongPosition(
+          ethers.utils.parseUnits("100", 30),
+          ethers.utils.parseUnits("1000", 30),
+          10,
+          100
+        );
+        await time.increase(181);
+        await tradeHelper.executePosition(true);
+
+        const request = await tradeHelper.getLastRequest(true);
+
+        assert(request.executed);
+
+        const _newCol = await tradeHelper.getCollateral(true);
+
+        console.log(
+          `Collateral Long: ${ethers.utils.formatUnits(_newCol, 30)}`
+        );
+
+        const _newSize = await tradeHelper.getPositionSize(true);
+
+        console.log(
+          `Position Size Long: ${ethers.utils.formatUnits(_newSize, 30)}`
+        );
+      });
     });
   });
 });

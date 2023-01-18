@@ -56,6 +56,14 @@ contract BotManager {
 
     constructor() {}
 
+    /**
+     * @dev - deploy a new bot and initialize it
+     * @param _stableToken - the underlying token address (USDC,USDT,DAI)
+     * @param _indexToken - the token to be traded (wBTC,wETH...)
+     * @param _leverage - which leverage one chooses. The value must be above 1
+     * @param _gridSize -the distance at which the limits are set. the decimals must match the chainlink pricefeed.
+     * @param _tradingSize - the size of a single position size. the value must not be greater than one tenth of the total stable token balance.
+     */
     function setUpNewBot(
         address _stableToken,
         address _indexToken,
@@ -78,8 +86,8 @@ contract BotManager {
             msg.sender,
             false,
             _leverage,
-            _gridSize,
             _tradingSize,
+            _gridSize,
             0,
             0
         );
@@ -118,14 +126,15 @@ contract BotManager {
         );
     }
 
-    function updatePositions(
-        bool _increase,
-        uint256 _limitTrigger,
-        uint256 _col,
-        uint256 _size
-    ) external {
-        _isBotContract();
-    }
+    // function updatePositions(
+    //     bool _increase,
+    //     uint256 _limitTrigger,
+    //     uint256 _col,
+    //     uint256 _size,
+    //     uint256 _entryPrice
+    // ) external {
+    //     _isBotContract();
+    // }
 
     /*====== Setup Functions ======*/
 
@@ -194,46 +203,66 @@ contract BotManager {
         );
     }
 
-    function _checkLimitPrice(address _bot) internal view returns (bool, bool) {
-        BotSetting memory _setting = botSettings[_bot];
+    /*====== Pure / View Functions ====== */
 
-        address _token = ITradeHelper(_bot).getStableToken();
+    function checkUpkeep(
+        bytes calldata /* checkData */
+    ) external view returns (bool upkeepNeeded, bytes memory performData) {
+        uint256 counter;
 
-        uint256 _price = getPrice(_token);
+        for (uint256 i = 0; i < bots.length; i++) {
+            address _bot = bots[i];
+            BotSetting memory _setting = botSettings[_bot];
+            bool _startLongPosition = getPrice(
+                ITradeHelper(_bot).getIndexToken()
+            ) > _setting.longLimitPrice;
+            bool _startShortPosition = getPrice(
+                ITradeHelper(_bot).getIndexToken()
+            ) < _setting.shortLimitPrice;
 
-        bool limitsExceed = _price >= _setting.longLimitPrice ||
-            _price <= _setting.shortLimitPrice
-            ? true
-            : false;
-
-        if (limitsExceed) {
-            bool long = _price >= _setting.longLimitPrice ? true : false;
-            return (limitsExceed, long);
+            if (
+                _startLongPosition &&
+                _startShortPosition &&
+                _setting.isActivated
+            ) {
+                counter++;
+                upkeepNeeded = true;
+            }
         }
 
-        return (limitsExceed, false);
+        uint256 indexPosition;
+        address[] memory updateableBots = new address[](counter);
+
+        for (uint256 i = 0; i < bots.length; i++) {
+            address _bot = bots[i];
+            BotSetting memory _setting = botSettings[_bot];
+            bool _startLongPosition = getPrice(
+                ITradeHelper(_bot).getIndexToken()
+            ) > _setting.longLimitPrice;
+            bool _startShortPosition = getPrice(
+                ITradeHelper(_bot).getIndexToken()
+            ) < _setting.shortLimitPrice;
+
+            if (
+                _startLongPosition &&
+                _startShortPosition &&
+                _setting.isActivated
+            ) {
+                updateableBots[indexPosition] = _bot;
+                indexPosition++;
+            }
+        }
+
+        performData = abi.encode(counter, updateableBots);
     }
 
-    /*====== Pure / View Functions ====== */
     function getBotSetting(
         address _bot
     ) external view returns (BotSetting memory) {
         return botSettings[_bot];
     }
 
-    function getBotKey(
-        address owner,
-        uint8 leverage,
-        address stableToken,
-        address indexToken
-    ) public pure returns (bytes32) {
-        return
-            keccak256(
-                abi.encodePacked(owner, leverage, stableToken, indexToken)
-            );
-    }
-
-    function getBotContracts() external view returns (address[] memory) {
+    function getBotList() external view returns (address[] memory) {
         return bots;
     }
 
