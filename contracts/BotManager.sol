@@ -58,6 +58,13 @@ contract BotManager is AutomationCompatible {
         uint256 shortLimitOrder
     );
 
+    event PositionOpened(
+        address bot,
+        uint256 limit,
+        uint256 collateral,
+        uint256 positionSize
+    );
+
     constructor() {}
 
     /**
@@ -155,6 +162,33 @@ contract BotManager is AutomationCompatible {
                 if (botSettings[botList[i]].shortLimitPrice >= _price) {}
             }
         }
+    }
+
+    function updatePosition(
+        uint256 _limitTrigger,
+        uint256 _size,
+        uint256 _col,
+        uint256 _price,
+        bool _isLong
+    ) external {
+        _isBotContract(msg.sender);
+
+        BotSetting memory _setting = botSettings[msg.sender];
+
+        uint256 _exitPrice = _limitTrigger + _setting.gridSize;
+
+        PositionData memory _newData = PositionData(
+            _col,
+            _size,
+            _limitTrigger,
+            _price,
+            _exitPrice,
+            _isLong
+        );
+
+        positionDatas[msg.sender].push(_newData);
+
+        emit PositionOpened(msg.sender, _limitTrigger, _col, _size);
     }
 
     // function updatePositions(

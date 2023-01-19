@@ -322,7 +322,11 @@ describe("Bot Manager Unit test", () => {
 
       const lastLongRequest = await bot.getLastRequest(true);
 
-      console.log(lastLongRequest);
+      assert(lastLongRequest.increase);
+      assert(!lastLongRequest.executed);
+      assert(
+        lastLongRequest.limitTrigger.eq(ethers.utils.parseUnits("1100", 8))
+      );
     });
   });
 });
