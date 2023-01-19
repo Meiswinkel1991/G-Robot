@@ -329,4 +329,64 @@ describe("Bot Manager Unit test", () => {
       );
     });
   });
+
+  describe("#updatePosition", () => {
+    it("should add the position after position execution", async () => {
+      const {
+        botManager,
+        tokenAddress,
+        tokenAddressWBTC,
+        mockPriceFeed,
+        USDC,
+        owner,
+      } = await loadFixture(deployManagerFixture);
+
+      const botAddress = await activateNewBot(
+        botManager,
+        tokenAddressWBTC,
+        tokenAddress
+      );
+
+      const tx = {
+        to: botAddress,
+        value: ethers.utils.parseEther("1"),
+      };
+
+      await owner.sendTransaction(tx);
+
+      const balanceETH = await ethers.provider.getBalance(botAddress);
+      console.log(`Bot Ether balance: ${ethers.utils.formatEther(balanceETH)}`);
+
+      // set the price higher than 1200 USD
+
+      await mockPriceFeed.updateAnswer(ethers.utils.parseUnits("1200", 8));
+
+      // should send USDC to bot
+
+      await USDC.transfer(botAddress, ethers.utils.parseUnits("1000", 6));
+
+      const answer = await botManager.checkUpkeep("0x");
+
+      // use the performUpkeep to create a new long position
+
+      await botManager.performUpkeep(answer.performData);
+
+      const bot = await ethers.getContractAt("TradeHelper", botAddress);
+
+      // execute the request self
+
+      await time.increase(181);
+
+      await bot.executePosition(true);
+
+      const positions = await botManager.getBotPositions(bot.address);
+
+      assert(positions[0].limitTrigger.eq(ethers.utils.parseUnits("1100", 8)));
+      assert(positions[0].exitPrice.eq(ethers.utils.parseUnits("1200", 8)));
+
+      const newSettings = await botManager.getBotSetting(bot.address);
+      console.log(newSettings);
+      assert(newSettings.longLimitPrice.eq(ethers.utils.parseUnits("1200", 8)));
+    });
+  });
 });

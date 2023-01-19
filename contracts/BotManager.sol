@@ -188,6 +188,12 @@ contract BotManager is AutomationCompatible {
 
         positionDatas[msg.sender].push(_newData);
 
+        if (_isLong) {
+            botSettings[msg.sender].longLimitPrice += _setting.gridSize;
+        } else {
+            botSettings[msg.sender].shortLimitPrice -= _setting.gridSize;
+        }
+
         emit PositionOpened(msg.sender, _limitTrigger, _col, _size);
     }
 
@@ -323,6 +329,12 @@ contract BotManager is AutomationCompatible {
 
     function getBotList() external view returns (address[] memory) {
         return bots;
+    }
+
+    function getBotPositions(
+        address _bot
+    ) external view returns (PositionData[] memory) {
+        return positionDatas[_bot];
     }
 
     function getPrice(address _token) public view returns (uint256) {

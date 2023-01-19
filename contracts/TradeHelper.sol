@@ -239,24 +239,45 @@ contract TradeHelper is Initializable {
         bool isExecuted,
         bool isIncrease
     ) public {
+        uint256 _posCollateral;
+        uint256 _posSize;
+
         if (getLastRequest(true).requestKey == positionKey) {
             longPositionRequest.executed = isExecuted;
 
-            (uint256 _size, uint256 _col, , , , , , ) = IVault(
-                projectSettings.getVaultGMX()
-            ).getPosition(
-                    address(this),
-                    indexTokenAddress,
-                    indexTokenAddress,
-                    true
-                );
-            uint256 _posCollateral = isIncrease ? _col.sub(collateralLong) : 0;
-            uint256 _posSize = isIncrease ? _size.sub(sizeLong) : 0;
+            (uint256 _size, uint256 _col) = _getPositionInformation(true);
+
+            _posCollateral = isIncrease ? _col.sub(collateralLong) : 0;
+            _posSize = isIncrease ? _size.sub(sizeLong) : 0;
 
             collateralLong = _col;
             sizeLong = _size;
-        } else {
+
+            botManager.updatePosition(
+                longPositionRequest.limitTrigger,
+                _posSize,
+                _posCollateral,
+                longPositionRequest.entryPrice,
+                true
+            );
+        } else if (getLastRequest(false).requestKey == positionKey) {
             shortPositionRequest.executed = isExecuted;
+
+            (uint256 _size, uint256 _col) = _getPositionInformation(false);
+
+            _posCollateral = isIncrease ? _col.sub(collateralShort) : 0;
+            _posSize = isIncrease ? _size.sub(sizeShort) : 0;
+
+            collateralShort = _col;
+            sizeShort = _size;
+
+            botManager.updatePosition(
+                shortPositionRequest.limitTrigger,
+                _posSize,
+                _posCollateral,
+                shortPositionRequest.entryPrice,
+                false
+            );
         }
     }
 
@@ -290,6 +311,20 @@ contract TradeHelper is Initializable {
                 )
             );
         }
+    }
+
+    function _getPositionInformation(
+        bool _isLong
+    ) internal view returns (uint256, uint256) {
+        (uint256 _size, uint256 _col, , , , , , ) = IVault(
+            projectSettings.getVaultGMX()
+        ).getPosition(
+                address(this),
+                _isLong ? indexTokenAddress : stableTokenAddress,
+                indexTokenAddress,
+                _isLong
+            );
+        return (_size, _col);
     }
 
     /*====== Pure / View Functions ======*/
