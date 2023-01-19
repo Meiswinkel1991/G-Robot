@@ -9,11 +9,9 @@ interface ITradeHelper {
         bytes32 _referralCode
     ) external;
 
-    function createDecreasePositionRequest(
-        bool _isLong,
-        uint256 _amountOut,
-        uint256 _deltaSize
-    ) external;
+    function swapToIndexToken(uint256 _amountIn) external;
+
+    function createLongPosition(uint8 _leverage, uint256 _limit) external;
 
     function getStableToken() external view returns (address);
 

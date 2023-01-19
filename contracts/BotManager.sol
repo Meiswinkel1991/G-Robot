@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.6;
 
+import "hardhat/console.sol";
+
 import "./interfaces/IERC20.sol";
 import "./interfaces/protocol/ITradeHelper.sol";
 import "./interfaces/protocol/IProjectSettings.sol";
 import "./interfaces/IVault.sol";
 
 import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+import "@chainlink/contracts/src/v0.8/AutomationCompatible.sol";
 import "@openzeppelin/contracts/proxy/Clones.sol";
 
-contract BotManager {
+contract BotManager is AutomationCompatible {
     struct BotSetting {
         address owner;
         bool isActivated;
@@ -24,6 +27,7 @@ contract BotManager {
         uint256 col;
         uint256 size;
         uint256 limitTrigger;
+        uint256 entryPrice;
         uint256 exitPrice;
         bool long;
     }
@@ -126,6 +130,33 @@ contract BotManager {
         );
     }
 
+    function performUpkeep(bytes calldata performData) external override {
+        address[] memory botList = abi.decode(performData, (address[]));
+
+        for (uint256 i = 0; i < botList.length; i++) {
+            ITradeHelper _bot = ITradeHelper(botList[i]);
+
+            uint256 _price = getPrice(_bot.getIndexToken());
+            uint256 _balanceStable = IERC20(_bot.getStableToken()).balanceOf(
+                botList[i]
+            );
+            console.log(_balanceStable);
+            console.log(_price);
+
+            if (_balanceStable >= botSettings[botList[i]].tradeSize) {
+                if (botSettings[botList[i]].longLimitPrice <= _price) {
+                    _bot.swapToIndexToken(botSettings[botList[i]].tradeSize);
+
+                    _bot.createLongPosition(
+                        botSettings[botList[i]].leverage,
+                        botSettings[botList[i]].longLimitPrice
+                    );
+                }
+                if (botSettings[botList[i]].shortLimitPrice >= _price) {}
+            }
+        }
+    }
+
     // function updatePositions(
     //     bool _increase,
     //     uint256 _limitTrigger,
@@ -198,7 +229,12 @@ contract BotManager {
 
     function checkUpkeep(
         bytes calldata /* checkData */
-    ) external view returns (bool upkeepNeeded, bytes memory performData) {
+    )
+        external
+        view
+        override
+        returns (bool upkeepNeeded, bytes memory performData)
+    {
         uint256 counter;
 
         for (uint256 i = 0; i < bots.length; i++) {
@@ -212,8 +248,7 @@ contract BotManager {
             ) < _setting.shortLimitPrice;
 
             if (
-                _startLongPosition &&
-                _startShortPosition &&
+                (_startLongPosition || _startShortPosition) &&
                 _setting.isActivated
             ) {
                 counter++;
@@ -235,8 +270,7 @@ contract BotManager {
             ) < _setting.shortLimitPrice;
 
             if (
-                _startLongPosition &&
-                _startShortPosition &&
+                (_startLongPosition || _startShortPosition) &&
                 _setting.isActivated
             ) {
                 updateableBots[indexPosition] = _bot;
@@ -244,7 +278,7 @@ contract BotManager {
             }
         }
 
-        performData = abi.encode(counter, updateableBots);
+        performData = abi.encode(updateableBots);
     }
 
     function getBotSetting(

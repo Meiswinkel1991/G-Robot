@@ -12,9 +12,18 @@ npx hardhat node
 npx hardhat run scripts/deploy.js
 ```
 
-## To Do's
+## Process
 
-1. Code Router for controlling all TradeHelper
-2. Deploy a proxy contract as tradeHelper
-3. Tradehelper Proxy is only be controlled by Router
-4. Router contract have no admin
+1. setupNewBot
+
+- new Bot will be create with the settings
+- a TradeHelper contract will be deolyed for the bot
+
+2. activateBot
+
+- activate the bot. It is only possible if the caller is the owner
+- initialize the limits for opening a short or long position
+
+3. checkUpkeep
+
+4. performUpkeep

@@ -88,7 +88,6 @@ describe("Bot Manager Unit test", () => {
     const _balance = await USDC.balanceOf(impersonatedSigner.address);
 
     await USDC.connect(impersonatedSigner).transfer(owner.address, _balance);
-    const _balanceOwner = await USDC.balanceOf(owner.address);
 
     return {
       mockPriceFeed,
@@ -99,7 +98,25 @@ describe("Bot Manager Unit test", () => {
       botManager,
       badActor,
       fakeBot,
+      USDC,
     };
+  }
+
+  async function activateNewBot(botManager, tokenAddressWBTC, tokenAddress) {
+    await botManager.setUpNewBot(
+      tokenAddress,
+      tokenAddressWBTC,
+      10,
+      ethers.utils.parseUnits("100", 8),
+      ethers.utils.parseUnits("10", 6)
+    );
+
+    const botList = await botManager.getBotList();
+    const newBot = botList[botList.length - 1];
+
+    await botManager.activateBot(newBot);
+
+    return newBot;
   }
 
   describe("#setUpNewBot", () => {
@@ -223,27 +240,11 @@ describe("Bot Manager Unit test", () => {
     });
   });
 
-  describe("#chekupKeep", () => {
-    async function activateNewBot(botManager, tokenAddressWBTC, tokenAddress) {
-      await botManager.setUpNewBot(
-        tokenAddress,
-        tokenAddressWBTC,
-        10,
-        ethers.utils.parseUnits("100", 8),
-        ethers.utils.parseUnits("10", 6)
-      );
-
-      const botList = await botManager.getBotList();
-      const newBot = botList[botList.length - 1];
-
-      await botManager.activateBot(newBot);
-
-      return newBot;
-    }
-
+  describe("#checkupKeep", () => {
     it("should return false when no limits are reached", async () => {
-      const { botManager, tokenAddress, tokenAddressWBTC, badActor } =
-        await loadFixture(deployManagerFixture);
+      const { botManager, tokenAddress, tokenAddressWBTC } = await loadFixture(
+        deployManagerFixture
+      );
 
       const botAddress = await activateNewBot(
         botManager,
@@ -254,6 +255,74 @@ describe("Bot Manager Unit test", () => {
       const answer = await botManager.checkUpkeep("0x");
 
       assert(!answer.upkeepNeeded);
+    });
+
+    it("should return true if the price breaks through the limitPrices", async () => {
+      const { botManager, tokenAddress, tokenAddressWBTC, mockPriceFeed } =
+        await loadFixture(deployManagerFixture);
+
+      const botAddress = await activateNewBot(
+        botManager,
+        tokenAddressWBTC,
+        tokenAddress
+      );
+
+      // set the price higher than 1200 USD
+
+      await mockPriceFeed.updateAnswer(ethers.utils.parseUnits("1200", 8));
+
+      const answer = await botManager.checkUpkeep("0x");
+
+      assert(answer.upkeepNeeded);
+    });
+  });
+
+  describe("#performUpkeep", () => {
+    it("should create a new request if the checkUpkeeper is successfull", async () => {
+      const {
+        botManager,
+        tokenAddress,
+        tokenAddressWBTC,
+        mockPriceFeed,
+        USDC,
+        owner,
+      } = await loadFixture(deployManagerFixture);
+
+      const botAddress = await activateNewBot(
+        botManager,
+        tokenAddressWBTC,
+        tokenAddress
+      );
+
+      const tx = {
+        to: botAddress,
+        value: ethers.utils.parseEther("1"),
+      };
+
+      await owner.sendTransaction(tx);
+
+      const balanceETH = await ethers.provider.getBalance(botAddress);
+      console.log(`Bot Ether balance: ${ethers.utils.formatEther(balanceETH)}`);
+
+      // set the price higher than 1200 USD
+
+      await mockPriceFeed.updateAnswer(ethers.utils.parseUnits("1200", 8));
+
+      // should send USDC to bot
+
+      await USDC.transfer(botAddress, ethers.utils.parseUnits("1000", 6));
+
+      const answer = await botManager.checkUpkeep("0x");
+
+      // use the performUpkeep to create a new long position
+
+      await botManager.performUpkeep(answer.performData);
+
+      const bot = await ethers.getContractAt("TradeHelper", botAddress);
+
+      const lastLongRequest = await bot.getLastRequest(true);
+
+      console.log(lastLongRequest);
     });
   });
 });
