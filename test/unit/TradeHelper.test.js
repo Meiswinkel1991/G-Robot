@@ -77,20 +77,28 @@ describe("TradeHelper Unit test", () => {
 
     let balanceTradeHelper = await USDC.balanceOf(tradeHelper.address);
 
-    if (balanceTradeHelper.eq(ethers.constants.Zero)) {
-      const whaleAddress = "0xf89d7b9c864f589bbF53a82105107622B35EaA40";
+    if (balanceTradeHelper.lt(ethers.utils.parseUnits("200", 6))) {
+      const whaleAddress = "0xFC2346AD540818d3c24687FA9598253D82D9129C";
 
       await impersonateAccount(whaleAddress);
       const impersonatedSigner = await ethers.getSigner(whaleAddress);
 
       const _balance = await USDC.balanceOf(impersonatedSigner.address);
 
+      console.log(
+        `Balance whale ${ethers.utils.formatUnits(_balance, 6)} USDC`
+      );
+
       await USDC.connect(impersonatedSigner).transfer(
         tradeHelper.address,
-        _balance.div(ethers.BigNumber.from("100000"))
+        ethers.utils.parseUnits("200", 6)
       );
 
       balanceTradeHelper = await USDC.balanceOf(tradeHelper.address);
+
+      console.log(
+        `Balance Bot: ${ethers.utils.formatUnits(balanceTradeHelper, 6)}`
+      );
     }
 
     let etherBalaceHelper = await ethers.provider.getBalance(
@@ -167,7 +175,11 @@ describe("TradeHelper Unit test", () => {
 
   describe("#createLongPosition", () => {
     it("should create a new increase position request", async () => {
-      const { tradeHelper } = await loadFixture(deployTradeHelperFixture);
+      const { tradeHelper, USDC } = await loadFixture(deployTradeHelperFixture);
+
+      const balanceUSDC = await USDC.balanceOf(tradeHelper.address);
+
+      console.log(ethers.utils.formatUnits(balanceUSDC, 6));
 
       await tradeHelper.swapToIndexToken(ethers.utils.parseUnits("100", 6));
 

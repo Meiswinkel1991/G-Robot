@@ -76,7 +76,7 @@ describe("Bot Manager Unit test", () => {
 
     await botManager.setPriceFeed(tokenAddressWBTC, mockPriceFeed.address);
 
-    const [owner, user, spender] = await ethers.getSigners();
+    const [owner, user, badActor, fakeBot] = await ethers.getSigners();
 
     // 4. send USDC to the owner
     const USDC = await ethers.getContractAt("IERC20", tokenAddress);
@@ -97,7 +97,8 @@ describe("Bot Manager Unit test", () => {
       tokenAddressWBTC,
       tokenAddress,
       botManager,
-      spender,
+      badActor,
+      fakeBot,
     };
   }
 
@@ -170,6 +171,89 @@ describe("Bot Manager Unit test", () => {
           ethers.utils.parseUnits("1100", 8),
           ethers.utils.parseUnits("900", 8)
         );
+    });
+
+    it("should fail if the bot is already activated", async () => {
+      const { botManager, tokenAddress, tokenAddressWBTC } = await loadFixture(
+        deployManagerFixture
+      );
+
+      await botManager.setUpNewBot(
+        tokenAddress,
+        tokenAddressWBTC,
+        10,
+        ethers.utils.parseUnits("100", 8),
+        ethers.utils.parseUnits("10", 6)
+      );
+
+      const botList = await botManager.getBotList();
+
+      await botManager.activateBot(botList[0]);
+
+      await expect(botManager.activateBot(botList[0])).to.revertedWith(
+        "BotManager: Bot already activated"
+      );
+    });
+
+    it("should fail if not the owner tries to activate the bot", async () => {
+      const { botManager, tokenAddress, tokenAddressWBTC, badActor } =
+        await loadFixture(deployManagerFixture);
+
+      await botManager.setUpNewBot(
+        tokenAddress,
+        tokenAddressWBTC,
+        10,
+        ethers.utils.parseUnits("100", 8),
+        ethers.utils.parseUnits("10", 6)
+      );
+
+      const botList = await botManager.getBotList();
+
+      await expect(
+        botManager.connect(badActor).activateBot(botList[0])
+      ).to.revertedWith("BotManager: Not the owner of the bot");
+    });
+
+    it("should fail if the called contract is not a bot", async () => {
+      const { botManager, fakeBot } = await loadFixture(deployManagerFixture);
+
+      await expect(botManager.activateBot(fakeBot.address)).to.revertedWith(
+        "BotManager: Not a bot contract"
+      );
+    });
+  });
+
+  describe("#chekupKeep", () => {
+    async function activateNewBot(botManager, tokenAddressWBTC, tokenAddress) {
+      await botManager.setUpNewBot(
+        tokenAddress,
+        tokenAddressWBTC,
+        10,
+        ethers.utils.parseUnits("100", 8),
+        ethers.utils.parseUnits("10", 6)
+      );
+
+      const botList = await botManager.getBotList();
+      const newBot = botList[botList.length - 1];
+
+      await botManager.activateBot(newBot);
+
+      return newBot;
+    }
+
+    it("should return false when no limits are reached", async () => {
+      const { botManager, tokenAddress, tokenAddressWBTC, badActor } =
+        await loadFixture(deployManagerFixture);
+
+      const botAddress = await activateNewBot(
+        botManager,
+        tokenAddressWBTC,
+        tokenAddress
+      );
+
+      const answer = await botManager.checkUpkeep("0x");
+
+      assert(!answer.upkeepNeeded);
     });
   });
 });

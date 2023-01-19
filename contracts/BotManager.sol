@@ -98,7 +98,7 @@ contract BotManager {
     }
 
     function activateBot(address _bot) public {
-        require(_botExists(_bot), "BotManager: Bot doesnt exist");
+        _isBotContract(_bot);
         BotSetting memory _setting = botSettings[_bot];
 
         _isBotOwner(_bot);
@@ -177,19 +177,10 @@ contract BotManager {
         );
     }
 
-    function _botExists(address _bot) internal view returns (bool) {
-        for (uint i = 0; i < bots.length; i++) {
-            if (_bot == bots[i]) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    function _isBotContract() internal view {
+    function _isBotContract(address _botAddress) internal view {
         bool _isBot;
         for (uint256 i = 0; i < bots.length; i++) {
-            if (bots[i] == msg.sender) {
+            if (bots[i] == _botAddress) {
                 _isBot = true;
             }
         }
