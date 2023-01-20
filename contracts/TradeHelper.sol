@@ -37,6 +37,9 @@ contract TradeHelper is Initializable {
 
     bytes32 private referralCode;
 
+    // slippage in 10th percent point : e.g. 1% = 1010
+    uint256 private constant slippage = 1010;
+
     bool private pluginApproved;
 
     uint256 private collateralLong;
@@ -102,7 +105,10 @@ contract TradeHelper is Initializable {
         _router.swap(_path, _amountIn, 0, address(this));
     }
 
-    function createLongPosition(uint8 _leverage, uint256 _limit) public {
+    function createLongPosition(
+        uint8 _leverage,
+        uint256 _limit
+    ) public payable {
         // 1. approvePlugin
         _approveRouterPlugin();
 
@@ -120,22 +126,19 @@ contract TradeHelper is Initializable {
         IPositionRouter _router = IPositionRouter(
             projectSettings.getPositionRouterGMX()
         );
-        console.log(_amountAvailable);
-        uint256 _price = IVault(projectSettings.getVaultGMX()).getMaxPrice(
-            indexTokenAddress
-        );
+
+        uint256 _price = IVault(projectSettings.getVaultGMX())
+            .getMaxPrice(indexTokenAddress)
+            .mul(slippage)
+            .div(1000);
         console.log(_price);
         uint256 _sizeDelta = _price
             .mul(_leverage)
             .div(10 ** IERC20Metadata(indexTokenAddress).decimals())
             .mul(_amountAvailable);
 
-        console.log(_sizeDelta);
-
-        uint256 _executionFee = _router.minExecutionFee();
-
         bytes32 _requestKey = _router.createIncreasePosition{
-            value: _executionFee
+            value: getExecutionFee()
         }(
             _path,
             indexTokenAddress,
@@ -144,7 +147,7 @@ contract TradeHelper is Initializable {
             _sizeDelta,
             true,
             _price,
-            _executionFee,
+            getExecutionFee(),
             referralCode,
             address(this)
         );
@@ -167,7 +170,7 @@ contract TradeHelper is Initializable {
         uint256 _deltaSize,
         uint8 _slippage,
         uint256 _limit
-    ) external {
+    ) external payable {
         _approveRouterPlugin();
 
         IPositionRouter _router = IPositionRouter(
@@ -183,10 +186,8 @@ contract TradeHelper is Initializable {
             .mul(1000 - _slippage)
             .div(1000);
 
-        uint256 _executionFee = _router.minExecutionFee();
-
         bytes32 _requestKey = _router.createDecreasePosition{
-            value: _executionFee
+            value: getExecutionFee()
         }(
             _path,
             indexTokenAddress,
@@ -196,7 +197,7 @@ contract TradeHelper is Initializable {
             address(this),
             _price,
             0,
-            _executionFee,
+            getExecutionFee(),
             false,
             address(this)
         );
@@ -366,5 +367,15 @@ contract TradeHelper is Initializable {
                 _size,
                 _entryFundingFee
             );
+    }
+
+    function getExecutionFee() public view returns (uint256) {
+        return
+            IPositionRouter(projectSettings.getPositionRouterGMX())
+                .minExecutionFee();
+    }
+
+    function getSlippage() public view returns (uint256) {
+        return slippage;
     }
 }

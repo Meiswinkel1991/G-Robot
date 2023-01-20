@@ -11,9 +11,21 @@ interface ITradeHelper {
 
     function swapToIndexToken(uint256 _amountIn) external;
 
-    function createLongPosition(uint8 _leverage, uint256 _limit) external;
+    function createLongPosition(
+        uint8 _leverage,
+        uint256 _limit
+    ) external payable;
+
+    function exitLongPosition(
+        uint256 _amountOut,
+        uint256 _deltaSize,
+        uint8 _slippage,
+        uint256 _limit
+    ) external payable;
 
     function getStableToken() external view returns (address);
 
     function getIndexToken() external view returns (address);
+
+    function getExecutionFee() external view returns (uint256);
 }

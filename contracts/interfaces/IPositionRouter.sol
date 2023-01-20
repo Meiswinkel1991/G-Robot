@@ -56,5 +56,5 @@ interface IPositionRouter {
         address _callbackTarget
     ) external payable returns (bytes32);
 
-    function minExecutionFee() external returns (uint256);
+    function minExecutionFee() external view returns (uint256);
 }

@@ -17,6 +17,7 @@ module.exports = {
       chainId: 31337,
     },
     localhost: {
+      hardfork: "merge",
       forking: {
         url: `${process.env.ARBITRUM_URL}`,
         //blockNumber: FORKING_BLOCK_NUMBER,

@@ -72,6 +72,10 @@ contract BotManager is AutomationCompatible {
 
     constructor() {}
 
+    receive() external payable {}
+
+    fallback() external payable {}
+
     /**
      * @dev - deploy a new bot and initialize it
      * @param _stableToken - the underlying token address (USDC,USDT,DAI)
@@ -150,17 +154,23 @@ contract BotManager is AutomationCompatible {
             ITradeHelper _bot = ITradeHelper(botList[i]);
 
             uint256 _price = getPrice(_bot.getIndexToken());
+
+            // (bool _takeProfit, uint256 _positionId) = _checkForProfitTarget(
+            //     botList[i],
+            //     _price
+            // );
+
+            // if (_takeProfit) {}
+
             uint256 _balanceStable = IERC20(_bot.getStableToken()).balanceOf(
                 botList[i]
             );
-            console.log(_balanceStable);
-            console.log(_price);
 
             if (_balanceStable >= botSettings[botList[i]].tradeSize) {
                 if (botSettings[botList[i]].longLimitPrice <= _price) {
                     _bot.swapToIndexToken(botSettings[botList[i]].tradeSize);
 
-                    _bot.createLongPosition(
+                    _bot.createLongPosition{value: _bot.getExecutionFee()}(
                         botSettings[botList[i]].leverage,
                         botSettings[botList[i]].longLimitPrice
                     );
@@ -196,8 +206,10 @@ contract BotManager is AutomationCompatible {
 
         if (_isLong) {
             botSettings[msg.sender].longLimitPrice += _setting.gridSize;
+            botSettings[msg.sender].shortLimitPrice += _setting.gridSize;
         } else {
             botSettings[msg.sender].shortLimitPrice -= _setting.gridSize;
+            botSettings[msg.sender].longLimitPrice -= _setting.gridSize;
         }
 
         emit PositionOpened(msg.sender, _limitTrigger, _col, _size);
@@ -265,11 +277,45 @@ contract BotManager is AutomationCompatible {
         address _stableToken = ITradeHelper(_bot).getStableToken();
 
         uint256 _funds = IERC20(_stableToken).balanceOf(_bot);
-        console.log(_funds);
+
         require(
             _funds >= MIN_FUND_MULTIPLIER * botSettings[_bot].tradeSize,
             "BotManager: Bot has not enough funds"
         );
+    }
+
+    function _checkForActivePositions(
+        address _bot,
+        uint256 _shortLimit,
+        uint256 _longLimit
+    ) internal view returns (bool) {
+        PositionData[] memory _positions = positionDatas[_bot];
+
+        for (uint256 i = 0; i < _positions.length; i++) {
+            uint256 _price = _positions[i].long ? _longLimit : _shortLimit;
+            if (_price == _positions[i].limitTrigger) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function _checkForProfitTarget(
+        address _bot,
+        uint256 _price
+    ) internal view returns (bool takeProfit, uint256) {
+        PositionData[] memory _positions = positionDatas[_bot];
+
+        for (uint256 i = 0; i < _positions.length; i++) {
+            bool _profit = _positions[i].long
+                ? _price >= _positions[i].exitPrice
+                : _price <= _positions[i].exitPrice;
+
+            if (_profit) {
+                return (true, i);
+            }
+        }
+        return (false, 0);
     }
 
     /*====== Pure / View Functions ====== */
@@ -293,10 +339,15 @@ contract BotManager is AutomationCompatible {
             bool _startShortPosition = getPrice(
                 ITradeHelper(_bot).getIndexToken()
             ) < _setting.shortLimitPrice;
-
+            bool _activePositions = _checkForActivePositions(
+                _bot,
+                _setting.shortLimitPrice,
+                _setting.longLimitPrice
+            );
             if (
                 (_startLongPosition || _startShortPosition) &&
-                _setting.isActivated
+                _setting.isActivated &&
+                !_activePositions
             ) {
                 counter++;
                 upkeepNeeded = true;
@@ -315,10 +366,15 @@ contract BotManager is AutomationCompatible {
             bool _startShortPosition = getPrice(
                 ITradeHelper(_bot).getIndexToken()
             ) < _setting.shortLimitPrice;
-
+            bool _activePositions = _checkForActivePositions(
+                _bot,
+                _setting.shortLimitPrice,
+                _setting.longLimitPrice
+            );
             if (
                 (_startLongPosition || _startShortPosition) &&
-                _setting.isActivated
+                _setting.isActivated &&
+                !_activePositions
             ) {
                 updateableBots[indexPosition] = _bot;
                 indexPosition++;

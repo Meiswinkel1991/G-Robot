@@ -11,23 +11,6 @@ const { networkConfig } = require("../../helper-hardhat-config");
 const { network, ethers } = require("hardhat");
 
 describe("Bot Manager Unit test", () => {
-  async function deployRandomBots(
-    number,
-    botManager,
-    tokenAddress,
-    tokenAddressWBTC
-  ) {
-    for (let i = 1; i <= number; i++) {
-      await botManager.setUpNewBot(
-        tokenAddress,
-        tokenAddressWBTC,
-        10,
-        ethers.utils.parseUnits("100", 8),
-        ethers.utils.parseUnits("10", 6)
-      );
-    }
-  }
-
   async function deployManagerFixture() {
     const chainId = network.config.chainId;
 
@@ -89,6 +72,13 @@ describe("Bot Manager Unit test", () => {
 
     await USDC.connect(impersonatedSigner).transfer(owner.address, _balance);
 
+    const tx = {
+      to: botManager.address,
+      value: ethers.utils.parseEther("1"),
+    };
+
+    await owner.sendTransaction(tx);
+
     return {
       mockPriceFeed,
       user,
@@ -99,6 +89,7 @@ describe("Bot Manager Unit test", () => {
       badActor,
       fakeBot,
       USDC,
+      vaultAddress,
     };
   }
 
@@ -254,6 +245,25 @@ describe("Bot Manager Unit test", () => {
         "BotManager: Not a bot contract"
       );
     });
+
+    it("should fail if the bot is not enought funded", async () => {
+      const { botManager, tokenAddress, tokenAddressWBTC, badActor, USDC } =
+        await loadFixture(deployManagerFixture);
+
+      await botManager.setUpNewBot(
+        tokenAddress,
+        tokenAddressWBTC,
+        10,
+        ethers.utils.parseUnits("100", 8),
+        ethers.utils.parseUnits("10", 6)
+      );
+
+      const botList = await botManager.getBotList();
+
+      await expect(botManager.activateBot(botList[0])).to.revertedWith(
+        "BotManager: Bot has not enough funds"
+      );
+    });
   });
 
   describe("#checkupKeep", () => {
@@ -317,16 +327,6 @@ describe("Bot Manager Unit test", () => {
         USDC
       );
 
-      const tx = {
-        to: botAddress,
-        value: ethers.utils.parseEther("1"),
-      };
-
-      await owner.sendTransaction(tx);
-
-      const balanceETH = await ethers.provider.getBalance(botAddress);
-      console.log(`Bot Ether balance: ${ethers.utils.formatEther(balanceETH)}`);
-
       // set the price higher than 1200 USD
 
       await mockPriceFeed.updateAnswer(ethers.utils.parseUnits("1200", 8));
@@ -351,6 +351,56 @@ describe("Bot Manager Unit test", () => {
         lastLongRequest.limitTrigger.eq(ethers.utils.parseUnits("1100", 8))
       );
     });
+
+    it("should close the active position when profit price reached and open a new one", async () => {
+      const {
+        botManager,
+        tokenAddress,
+        tokenAddressWBTC,
+        mockPriceFeed,
+        USDC,
+        owner,
+      } = await loadFixture(deployManagerFixture);
+
+      const botAddress = await activateNewBot(
+        botManager,
+        tokenAddressWBTC,
+        tokenAddress,
+        USDC
+      );
+
+      // set the price higher than 1200 USD
+
+      await mockPriceFeed.updateAnswer(ethers.utils.parseUnits("1100", 8));
+
+      // should send USDC to bot
+
+      await USDC.transfer(botAddress, ethers.utils.parseUnits("1000", 6));
+
+      let answer = await botManager.checkUpkeep("0x");
+
+      // use the performUpkeep to create a new long position
+
+      await botManager.performUpkeep(answer.performData);
+
+      const bot = await ethers.getContractAt("TradeHelper", botAddress);
+
+      // execute the request self
+
+      await time.increase(181);
+
+      await bot.executePosition(true);
+
+      // when the price reached the take profit price close position
+
+      await mockPriceFeed.updateAnswer(ethers.utils.parseUnits("1200", 8));
+
+      answer = await botManager.checkUpkeep("0x");
+
+      // use the performUpkeep to create a new long position
+
+      await botManager.performUpkeep(answer.performData);
+    });
   });
 
   describe("#updatePosition", () => {
@@ -362,6 +412,7 @@ describe("Bot Manager Unit test", () => {
         mockPriceFeed,
         USDC,
         owner,
+        vaultAddress,
       } = await loadFixture(deployManagerFixture);
 
       const botAddress = await activateNewBot(
@@ -390,6 +441,7 @@ describe("Bot Manager Unit test", () => {
       await USDC.transfer(botAddress, ethers.utils.parseUnits("1000", 6));
 
       const answer = await botManager.checkUpkeep("0x");
+      console.log(answer);
 
       // use the performUpkeep to create a new long position
 
@@ -401,6 +453,8 @@ describe("Bot Manager Unit test", () => {
 
       await time.increase(181);
 
+      const vaultGMX = await ethers.getContractAt("IVault", vaultAddress);
+
       await bot.executePosition(true);
 
       const positions = await botManager.getBotPositions(bot.address);
@@ -409,7 +463,7 @@ describe("Bot Manager Unit test", () => {
       assert(positions[0].exitPrice.eq(ethers.utils.parseUnits("1200", 8)));
 
       const newSettings = await botManager.getBotSetting(bot.address);
-      console.log(newSettings);
+
       assert(newSettings.longLimitPrice.eq(ethers.utils.parseUnits("1200", 8)));
     });
   });

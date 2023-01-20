@@ -54,14 +54,14 @@ describe("TradeHelper Unit test", () => {
     await managerContract.setProjectSettingAddress(projectSettings.address);
 
     // 3. Deploy a proxy contract for testing
-    const gridSize = ethers.utils.parseUnits("100", 30);
+    const gridSize = ethers.utils.parseUnits("100", 8);
 
     const tradingSize = ethers.utils.parseUnits("10", 6);
 
     await managerContract.setUpNewBot(
       tokenAddress,
       tokenAddressWBTC,
-      2,
+      10,
       gridSize,
       tradingSize
     );
@@ -358,8 +358,8 @@ describe("TradeHelper Unit test", () => {
         const size = await tradeHelper.getPositionSize(true);
         console.log(size);
         await tradeHelper.exitLongPosition(
-          ethers.utils.parseUnits("100", 30),
-          ethers.utils.parseUnits("1000", 30),
+          ethers.utils.parseUnits("0", 30),
+          ethers.utils.parseUnits("200", 30),
           10,
           100
         );
