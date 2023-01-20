@@ -102,7 +102,12 @@ describe("Bot Manager Unit test", () => {
     };
   }
 
-  async function activateNewBot(botManager, tokenAddressWBTC, tokenAddress) {
+  async function activateNewBot(
+    botManager,
+    tokenAddressWBTC,
+    tokenAddress,
+    USDC
+  ) {
     await botManager.setUpNewBot(
       tokenAddress,
       tokenAddressWBTC,
@@ -113,6 +118,8 @@ describe("Bot Manager Unit test", () => {
 
     const botList = await botManager.getBotList();
     const newBot = botList[botList.length - 1];
+
+    await USDC.transfer(newBot, ethers.utils.parseUnits("1000", 6));
 
     await botManager.activateBot(newBot);
 
@@ -141,9 +148,8 @@ describe("Bot Manager Unit test", () => {
 
   describe("#activateBot", () => {
     it("should activate the bot and initalize the limit prices", async () => {
-      const { botManager, tokenAddress, tokenAddressWBTC } = await loadFixture(
-        deployManagerFixture
-      );
+      const { botManager, tokenAddress, tokenAddressWBTC, USDC } =
+        await loadFixture(deployManagerFixture);
 
       await botManager.setUpNewBot(
         tokenAddress,
@@ -154,6 +160,9 @@ describe("Bot Manager Unit test", () => {
       );
 
       const botList = await botManager.getBotList();
+
+      // transfer USDC
+      await USDC.transfer(botList[0], ethers.utils.parseUnits("1000", 6));
 
       await botManager.activateBot(botList[0]);
 
@@ -166,9 +175,8 @@ describe("Bot Manager Unit test", () => {
     });
 
     it("should emit an event that the bot is activated", async () => {
-      const { botManager, tokenAddress, tokenAddressWBTC } = await loadFixture(
-        deployManagerFixture
-      );
+      const { botManager, tokenAddress, tokenAddressWBTC, USDC } =
+        await loadFixture(deployManagerFixture);
 
       await botManager.setUpNewBot(
         tokenAddress,
@@ -179,6 +187,9 @@ describe("Bot Manager Unit test", () => {
       );
 
       const botList = await botManager.getBotList();
+
+      // transfer USDC
+      await USDC.transfer(botList[0], ethers.utils.parseUnits("1000", 6));
 
       await expect(botManager.activateBot(botList[0]))
         .to.emit(botManager, "BotActivated")
@@ -191,29 +202,7 @@ describe("Bot Manager Unit test", () => {
     });
 
     it("should fail if the bot is already activated", async () => {
-      const { botManager, tokenAddress, tokenAddressWBTC } = await loadFixture(
-        deployManagerFixture
-      );
-
-      await botManager.setUpNewBot(
-        tokenAddress,
-        tokenAddressWBTC,
-        10,
-        ethers.utils.parseUnits("100", 8),
-        ethers.utils.parseUnits("10", 6)
-      );
-
-      const botList = await botManager.getBotList();
-
-      await botManager.activateBot(botList[0]);
-
-      await expect(botManager.activateBot(botList[0])).to.revertedWith(
-        "BotManager: Bot already activated"
-      );
-    });
-
-    it("should fail if not the owner tries to activate the bot", async () => {
-      const { botManager, tokenAddress, tokenAddressWBTC, badActor } =
+      const { botManager, tokenAddress, tokenAddressWBTC, USDC } =
         await loadFixture(deployManagerFixture);
 
       await botManager.setUpNewBot(
@@ -225,6 +214,33 @@ describe("Bot Manager Unit test", () => {
       );
 
       const botList = await botManager.getBotList();
+
+      // transfer USDC
+      await USDC.transfer(botList[0], ethers.utils.parseUnits("1000", 6));
+
+      await botManager.activateBot(botList[0]);
+
+      await expect(botManager.activateBot(botList[0])).to.revertedWith(
+        "BotManager: Bot already activated"
+      );
+    });
+
+    it("should fail if not the owner tries to activate the bot", async () => {
+      const { botManager, tokenAddress, tokenAddressWBTC, badActor, USDC } =
+        await loadFixture(deployManagerFixture);
+
+      await botManager.setUpNewBot(
+        tokenAddress,
+        tokenAddressWBTC,
+        10,
+        ethers.utils.parseUnits("100", 8),
+        ethers.utils.parseUnits("10", 6)
+      );
+
+      const botList = await botManager.getBotList();
+
+      // transfer USDC
+      await USDC.transfer(botList[0], ethers.utils.parseUnits("1000", 6));
 
       await expect(
         botManager.connect(badActor).activateBot(botList[0])
@@ -242,14 +258,14 @@ describe("Bot Manager Unit test", () => {
 
   describe("#checkupKeep", () => {
     it("should return false when no limits are reached", async () => {
-      const { botManager, tokenAddress, tokenAddressWBTC } = await loadFixture(
-        deployManagerFixture
-      );
+      const { botManager, tokenAddress, tokenAddressWBTC, USDC } =
+        await loadFixture(deployManagerFixture);
 
       const botAddress = await activateNewBot(
         botManager,
         tokenAddressWBTC,
-        tokenAddress
+        tokenAddress,
+        USDC
       );
 
       const answer = await botManager.checkUpkeep("0x");
@@ -258,13 +274,19 @@ describe("Bot Manager Unit test", () => {
     });
 
     it("should return true if the price breaks through the limitPrices", async () => {
-      const { botManager, tokenAddress, tokenAddressWBTC, mockPriceFeed } =
-        await loadFixture(deployManagerFixture);
+      const {
+        botManager,
+        tokenAddress,
+        tokenAddressWBTC,
+        mockPriceFeed,
+        USDC,
+      } = await loadFixture(deployManagerFixture);
 
       const botAddress = await activateNewBot(
         botManager,
         tokenAddressWBTC,
-        tokenAddress
+        tokenAddress,
+        USDC
       );
 
       // set the price higher than 1200 USD
@@ -291,7 +313,8 @@ describe("Bot Manager Unit test", () => {
       const botAddress = await activateNewBot(
         botManager,
         tokenAddressWBTC,
-        tokenAddress
+        tokenAddress,
+        USDC
       );
 
       const tx = {
@@ -344,7 +367,8 @@ describe("Bot Manager Unit test", () => {
       const botAddress = await activateNewBot(
         botManager,
         tokenAddressWBTC,
-        tokenAddress
+        tokenAddress,
+        USDC
       );
 
       const tx = {

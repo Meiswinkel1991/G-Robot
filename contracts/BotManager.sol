@@ -32,6 +32,11 @@ contract BotManager is AutomationCompatible {
         bool long;
     }
 
+    /** The minimum amount of bot funds when activated
+     *  >>> tradingsize * MIN_FUND_MULTIPLIER <= funds  <<<
+     * */
+    uint8 public constant MIN_FUND_MULTIPLIER = 10;
+
     bytes32 public referralCode =
         0x4d53575f32303233000000000000000000000000000000000000000000000000;
 
@@ -115,9 +120,10 @@ contract BotManager is AutomationCompatible {
         _isBotOwner(_bot);
         _notActiveBot(_bot);
 
-        address _indexToken = ITradeHelper(_bot).getIndexToken();
+        _validateBotFunds(_bot);
 
-        _hasPriceFeed(_indexToken);
+        address _indexToken = ITradeHelper(_bot).getIndexToken();
+        _validatePriceFeed(_indexToken);
 
         botSettings[_bot].longLimitPrice =
             getPrice(_indexToken) +
@@ -197,16 +203,6 @@ contract BotManager is AutomationCompatible {
         emit PositionOpened(msg.sender, _limitTrigger, _col, _size);
     }
 
-    // function updatePositions(
-    //     bool _increase,
-    //     uint256 _limitTrigger,
-    //     uint256 _col,
-    //     uint256 _size,
-    //     uint256 _entryPrice
-    // ) external {
-    //     _isBotContract();
-    // }
-
     /*====== Setup Functions ======*/
 
     function setPriceFeed(address _token, address _priceFeed) public {
@@ -258,10 +254,21 @@ contract BotManager is AutomationCompatible {
         require(_isBot, "BotManager: Not a bot contract");
     }
 
-    function _hasPriceFeed(address _token) internal view {
+    function _validatePriceFeed(address _token) internal view {
         require(
             priceFeedAddresses[_token] != address(0),
             "BotManager: No Price Feed initialized"
+        );
+    }
+
+    function _validateBotFunds(address _bot) internal view {
+        address _stableToken = ITradeHelper(_bot).getStableToken();
+
+        uint256 _funds = IERC20(_stableToken).balanceOf(_bot);
+        console.log(_funds);
+        require(
+            _funds >= MIN_FUND_MULTIPLIER * botSettings[_bot].tradeSize,
+            "BotManager: Bot has not enough funds"
         );
     }
 
